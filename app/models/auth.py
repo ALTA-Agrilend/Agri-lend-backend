@@ -32,4 +32,4 @@ class User(TimestampMixin, Base):
     locale: Mapped[str] = mapped_column(String(10), default="en")
     last_login: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    role: Mapped["Role"] = relationship("Role", back_populates="users")
+    role: Mapped["Role"] = relationship("Role", back_populates="users", lazy="joined")

@@ -18,10 +18,11 @@ class Settings(BaseSettings):
     cors_origins: str = '["http://localhost:5173","http://localhost:3000"]'
 
     eyosiyas_service_url: str = "http://geospatial-service:8001"
-    amanuel_service_url: str = "http://scoring-service:8002"
+    amanuel_service_url: str = "https://agri-lend-agricultural-credit-calculator.onrender.com"
 
     rate_limit_per_minute: int = 30
     rate_limit_auth_per_minute: int = 10
+    credit_score_expiry_hours: int = 24
 
     log_level: str = "INFO"
     audit_log_enabled: bool = True

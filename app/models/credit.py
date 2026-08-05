@@ -1,7 +1,8 @@
 import uuid
+import json
 from datetime import datetime, timezone
 from decimal import Decimal
-from sqlalchemy import Integer, String, DateTime, Numeric, Enum as SAEnum, ForeignKey, func
+from sqlalchemy import Integer, String, DateTime, Numeric, Enum as SAEnum, ForeignKey, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base, TimestampMixin
@@ -29,5 +30,7 @@ class CreditScoreRecord(TimestampMixin, Base):
     calculated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+    categorical_breakdown: Mapped[str | None] = mapped_column(Text)
+    raw_sub_scores: Mapped[str | None] = mapped_column(Text)
 
     farmer: Mapped["FarmerProfile"] = relationship("FarmerProfile", back_populates="credit_scores")

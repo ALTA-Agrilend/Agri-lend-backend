@@ -34,6 +34,13 @@ class FarmerRegistrationHub(BaseModel):
             raise ValueError("Invalid phone number format")
         return v
 
+    @field_validator("crop_type")
+    @classmethod
+    def titlecase_crop(cls, v: str | None) -> str | None:
+        if v:
+            return v.strip().title()
+        return v
+
 
 class FarmerProfileResponse(BaseModel):
     id: UUID
@@ -72,6 +79,11 @@ class FarmParcelCreate(BaseModel):
     size_hectares: Decimal = Field(..., gt=0)
     primary_crop: str = Field(..., max_length=100)
     region: str = Field(..., max_length=100)
+
+    @field_validator("primary_crop")
+    @classmethod
+    def titlecase_crop(cls, v: str) -> str:
+        return v.strip().title()
 
 
 class FarmParcelResponse(BaseModel):

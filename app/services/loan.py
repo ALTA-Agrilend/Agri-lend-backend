@@ -7,14 +7,25 @@ from datetime import datetime, timezone
 from uuid import UUID as UUIDType
 
 
+def to_uuid(val: str | UUIDType | None) -> UUIDType | None:
+    if val is None:
+        return None
+    if isinstance(val, UUIDType):
+        return val
+    try:
+        return UUIDType(str(val))
+    except (ValueError, TypeError):
+        return None
+
+
 class LoanService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
     async def create_application(self, data: LoanApplicationCreate, score: int) -> LoanApplication:
         app = LoanApplication(
-            farmer_id=data.farmer_id,
-            bank_id=data.bank_id,
+            farmer_id=to_uuid(data.farmer_id),
+            bank_id=to_uuid(data.bank_id),
             requested_amount=data.requested_amount,
             loan_purpose=data.loan_purpose,
             credit_score_at_application=score,
@@ -23,10 +34,9 @@ class LoanService:
         await self.db.flush()
         return app
 
-    async def get_by_id(self, app_id: str) -> LoanApplication | None:
-        try:
-            uid = UUIDType(app_id) if isinstance(app_id, str) else app_id
-        except ValueError:
+    async def get_by_id(self, app_id: str | UUIDType) -> LoanApplication | None:
+        uid = to_uuid(app_id)
+        if not uid:
             return None
         result = await self.db.execute(select(LoanApplication).where(LoanApplication.id == uid))
         return result.scalar_one_or_none()
@@ -34,45 +44,61 @@ class LoanService:
     async def get_applications(self, farmer_id: str | None = None, status: LoanStatus | None = None) -> list[LoanApplication]:
         query = select(LoanApplication).order_by(desc(LoanApplication.submitted_at))
         if farmer_id:
-            query = query.where(LoanApplication.farmer_id == farmer_id)
+            query = query.where(LoanApplication.farmer_id == to_uuid(farmer_id))
         if status:
             query = query.where(LoanApplication.status == status)
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def get_filtered_applications(self, filters: LoanListFilter) -> list[dict]:
-        query = (
+    async def get_filtered_applications(self, filters: LoanListFilter) -> dict:
+        base_query = (
             select(
                 LoanApplication, FarmerProfile.full_name, FarmerProfile.phone_number,
                 FarmParcel.region, FarmParcel.primary_crop, FarmParcel.size_hectares,
             )
             .join(FarmerProfile, LoanApplication.farmer_id == FarmerProfile.id)
             .join(FarmParcel, FarmParcel.farmer_id == FarmerProfile.id, isouter=True)
-            .order_by(desc(LoanApplication.submitted_at))
         )
-        if filters.status:
-            query = query.where(LoanApplication.status == filters.status)
-        if filters.region:
-            query = query.where(FarmParcel.region == filters.region)
-        if filters.crop_type:
-            query = query.where(FarmParcel.primary_crop == filters.crop_type)
-        if filters.min_amount is not None:
-            query = query.where(LoanApplication.requested_amount >= filters.min_amount)
-        if filters.max_amount is not None:
-            query = query.where(LoanApplication.requested_amount <= filters.max_amount)
+        count_query = select(sa_func.count(LoanApplication.id)).select_from(LoanApplication).join(
+            FarmerProfile, LoanApplication.farmer_id == FarmerProfile.id
+        ).join(FarmParcel, FarmParcel.farmer_id == FarmerProfile.id, isouter=True)
 
+        if filters.status:
+            base_query = base_query.where(LoanApplication.status == filters.status)
+            count_query = count_query.where(LoanApplication.status == filters.status)
+        if filters.region:
+            base_query = base_query.where(FarmParcel.region == filters.region)
+            count_query = count_query.where(FarmParcel.region == filters.region)
+        if filters.crop_type:
+            base_query = base_query.where(FarmParcel.primary_crop == filters.crop_type)
+            count_query = count_query.where(FarmParcel.primary_crop == filters.crop_type)
+        if filters.min_amount is not None:
+            base_query = base_query.where(LoanApplication.requested_amount >= filters.min_amount)
+            count_query = count_query.where(LoanApplication.requested_amount >= filters.min_amount)
+        if filters.max_amount is not None:
+            base_query = base_query.where(LoanApplication.requested_amount <= filters.max_amount)
+            count_query = count_query.where(LoanApplication.requested_amount <= filters.max_amount)
+
+        total_res = await self.db.execute(count_query)
+        total = total_res.scalar() or 0
+
+        base_query = base_query.order_by(desc(LoanApplication.submitted_at))
         offset = (filters.page - 1) * filters.page_size
-        query = query.offset(offset).limit(filters.page_size)
-        result = await self.db.execute(query)
+        base_query = base_query.offset(offset).limit(filters.page_size)
+
+        result = await self.db.execute(base_query)
         rows = result.all()
-        return [
+
+        items = [
             {
-                "id": app.id,
-                "farmer_id": app.farmer_id,
-                "bank_id": app.bank_id,
-                "requested_amount": app.requested_amount,
+                "id": str(app.id),
+                "farmer_id": str(app.farmer_id),
+                "bank_id": str(app.bank_id),
+                "requested_amount": float(app.requested_amount),
+                "amount_requested": float(app.requested_amount),
                 "loan_purpose": app.loan_purpose,
                 "credit_score_at_application": app.credit_score_at_application,
+                "credit_score_snapshot": app.credit_score_at_application,
                 "status": app.status.value,
                 "submitted_at": app.submitted_at,
                 "reviewed_at": app.reviewed_at,
@@ -80,14 +106,25 @@ class LoanService:
                 "farmer_phone": phone_number,
                 "region": region,
                 "crop_type": primary_crop,
-                "farm_size": size_hectares,
+                "farm_size": float(size_hectares) if size_hectares else 0.0,
             }
             for app, full_name, phone_number, region, primary_crop, size_hectares in rows
         ]
 
-    async def get_applicant_detail(self, app_id: str) -> dict | None:
+        return {
+            "items": items,
+            "total": total,
+            "page": filters.page,
+            "page_size": filters.page_size,
+            "total_pages": -(-total // filters.page_size) if total > 0 else 0,
+        }
+
+    async def get_applicant_detail(self, app_id: str | UUIDType) -> dict | None:
+        uid = to_uuid(app_id)
+        if not uid:
+            return None
         result = await self.db.execute(
-            select(LoanApplication).where(LoanApplication.id == app_id)
+            select(LoanApplication).where(LoanApplication.id == uid)
         )
         app = result.scalar_one_or_none()
         if not app:
@@ -118,19 +155,21 @@ class LoanService:
                 score_trend = "declining"
 
         return {
-            "application_id": app.id,
-            "farmer_id": app.farmer_id,
+            "application_id": str(app.id),
+            "farmer_id": str(app.farmer_id),
             "farmer_name": profile.full_name if profile else "",
             "farmer_phone": profile.phone_number if profile else "",
             "farmer_region": parcel.region if parcel else "",
             "farmer_crop": parcel.primary_crop if parcel else "",
             "farm_size_hectares": float(parcel.size_hectares) if parcel and parcel.size_hectares else None,
             "requested_amount": float(app.requested_amount),
+            "amount_requested": float(app.requested_amount),
             "loan_purpose": app.loan_purpose,
             "status": app.status.value,
             "submitted_at": app.submitted_at,
             "reviewed_at": app.reviewed_at,
             "credit_score_at_application": app.credit_score_at_application,
+            "credit_score_snapshot": app.credit_score_at_application,
             "credit_score_current": current_score.score_value if current_score else None,
             "risk_tier": current_score.risk_tier.value if current_score else None,
             "score_trend": score_trend,
@@ -181,12 +220,12 @@ class LoanService:
             for app, full_name in rows
         ]
 
-    async def review_application(self, app_id: str, status: LoanStatus, reviewer_id: str) -> LoanApplication | None:
+    async def review_application(self, app_id: str | UUIDType, status: LoanStatus, reviewer_id: str) -> LoanApplication | None:
         app = await self.get_by_id(app_id)
         if not app:
             return None
         app.status = status
-        app.reviewed_by = UUIDType(reviewer_id) if reviewer_id else None
+        app.reviewed_by = to_uuid(reviewer_id)
         app.reviewed_at = datetime.now(timezone.utc)
         await self.db.flush()
         return app

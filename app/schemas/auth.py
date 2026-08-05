@@ -61,6 +61,7 @@ class UserResponse(BaseModel):
     email: str
     full_name: str
     role_id: UUID
+    role_name: Optional[str] = None
     is_active: bool
     locale: str
     created_at: datetime

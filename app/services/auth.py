@@ -1,12 +1,24 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func as sa_func, or_
 from typing import Optional
+from sqlalchemy.orm import joinedload
 from app.models.auth import User, Role
 from app.models.audit import AuditLog
 from app.schemas.auth import UserCreate, UserUpdate
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
 from uuid import UUID
 from datetime import datetime, timezone
+
+
+def to_uuid(val: str | UUID | None) -> UUID | None:
+    if val is None:
+        return None
+    if isinstance(val, UUID):
+        return val
+    try:
+        return UUID(str(val))
+    except (ValueError, TypeError):
+        return None
 
 
 class AuthService:
@@ -33,7 +45,7 @@ class AuthService:
         return user
 
     async def authenticate(self, email: str, password: str) -> tuple[User, str, str] | None:
-        result = await self.db.execute(select(User).where(User.email == email))
+        result = await self.db.execute(select(User).options(joinedload(User.role)).where(User.email == email))
         user = result.scalar_one_or_none()
         if not user or not verify_password(password, user.hashed_password):
             return None
@@ -53,8 +65,11 @@ class AuthService:
         access = create_access_token(str(user.id), user.role.name)
         return access, refresh_token
 
-    async def get_user_by_id(self, user_id: str) -> User | None:
-        result = await self.db.execute(select(User).where(User.id == user_id))
+    async def get_user_by_id(self, user_id: str | UUID) -> User | None:
+        target_id = to_uuid(user_id)
+        if not target_id:
+            return None
+        result = await self.db.execute(select(User).options(joinedload(User.role)).where(User.id == target_id))
         return result.scalar_one_or_none()
 
     async def get_all_users(self, page: int = 1, page_size: int = 20, role: Optional[str] = None, search: Optional[str] = None) -> dict:
@@ -96,7 +111,7 @@ class AuthService:
     async def admin_create_user(self, data: UserCreate) -> User:
         return await self.register_user(data)
 
-    async def assign_role(self, user_id: str, role_name: str) -> User | None:
+    async def assign_role(self, user_id: str | UUID, role_name: str) -> User | None:
         role = await self._get_role(role_name)
         if not role:
             raise ValueError(f"Role '{role_name}' not found")
@@ -107,7 +122,7 @@ class AuthService:
         await self.db.flush()
         return user
 
-    async def update_user(self, user_id: str, data: UserUpdate) -> User | None:
+    async def update_user(self, user_id: str | UUID, data: UserUpdate) -> User | None:
         user = await self.get_user_by_id(user_id)
         if not user:
             return None
@@ -120,7 +135,7 @@ class AuthService:
         await self.db.flush()
         return user
 
-    async def deactivate_user(self, user_id: str) -> User | None:
+    async def deactivate_user(self, user_id: str | UUID) -> User | None:
         user = await self.get_user_by_id(user_id)
         if not user:
             return None
@@ -128,7 +143,7 @@ class AuthService:
         await self.db.flush()
         return user
 
-    async def delete_user(self, user_id: str) -> bool:
+    async def delete_user(self, user_id: str | UUID) -> bool:
         user = await self.get_user_by_id(user_id)
         if not user:
             return False
@@ -136,9 +151,10 @@ class AuthService:
         await self.db.flush()
         return True
 
-    async def log_audit(self, user_id: str, action: str, resource: str, resource_id: str, details: str | None = None, ip: str | None = None) -> None:
+    async def log_audit(self, user_id: str | UUID, action: str, resource: str, resource_id: str, details: str | None = None, ip: str | None = None) -> None:
+        target_user_id = to_uuid(user_id)
         log = AuditLog(
-            user_id=user_id,
+            user_id=target_user_id,
             action=action,
             resource=resource,
             resource_id=resource_id,

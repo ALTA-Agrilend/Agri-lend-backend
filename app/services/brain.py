@@ -1,3 +1,4 @@
+import json
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.farmer import FarmerProfile, FarmParcel
@@ -26,7 +27,6 @@ class BrainService:
         )
         parcel = parcel_result.scalar_one_or_none()
 
-        geo_score = Decimal("0.0")
         ndvi_values = []
         if parcel:
             obs_result = await self.db.execute(
@@ -37,26 +37,30 @@ class BrainService:
             )
             observations = obs_result.scalars().all()
             ndvi_values = [float(o.ndvi_value) for o in observations if o.ndvi_value is not None]
-            if ndvi_values:
-                avg_ndvi = sum(ndvi_values) / len(ndvi_values)
-                geo_score = Decimal(str(round(avg_ndvi * 100, 2)))
 
-        trans_score = Decimal("0.0")
-        alt_score = Decimal("0.0")
-        model_ver = "v1.0.0"
-        confidence = Decimal("0.85")
+        categorical_breakdown = None
+        raw_sub_scores = None
 
         try:
             scoring = ScoringService()
-            ai_result = await scoring.get_credit_score(farmer_id)
-            score_value = ai_result.get("score", 500)
-            risk_tier_str = ai_result.get("risk_tier", "MEDIUM")
-            confidence = Decimal(str(ai_result.get("confidence", 0.85)))
-            model_ver = ai_result.get("model_version", "v1.0.0")
-            geo_score = Decimal(str(ai_result.get("geospatial_score", geo_score)))
-            trans_score = Decimal(str(ai_result.get("transactional_score", 0)))
-            alt_score = Decimal(str(ai_result.get("alternative_score", 0)))
-            risk_tier = RiskTier(risk_tier_str)
+            polygon = None
+            if parcel and parcel.location_polygon:
+                try:
+                    polygon = json.loads(parcel.location_polygon)
+                except (json.JSONDecodeError, TypeError):
+                    polygon = parcel.location_polygon
+            crop_type = parcel.primary_crop if parcel else ""
+            ai_result = await scoring.get_credit_score(str(farmer_id), polygon, crop_type)
+
+            ce = ai_result["credit_evaluation"]
+            score_value = ce["final_credit_score"]
+            risk_tier = BrainService._tier_from_score(score_value)
+            geo_score = Decimal(str(round(ce["raw_geospatial_score_out_of_100"], 2)))
+            confidence = Decimal(str(round(ce["confidence_rating"]["confidence_percentage"] / 100, 2)))
+            model_ver = "amanuel-v1"
+            categorical_breakdown = json.dumps(ai_result.get("categorical_points_breakdown"))
+            raw_sub_scores = json.dumps(ai_result.get("raw_extracted_sub_scores"))
+
         except Exception:
             if ndvi_values:
                 avg = sum(ndvi_values) / len(ndvi_values)
@@ -72,17 +76,22 @@ class BrainService:
             else:
                 score_value = 500
                 risk_tier = RiskTier.MEDIUM
+            geo_score = Decimal("0.0")
+            confidence = Decimal("0.85")
+            model_ver = "fallback-ndvi"
 
         record = CreditScoreRecord(
             farmer_id=farmer_id,
             score_value=score_value,
             risk_tier=risk_tier,
             geospatial_score=geo_score,
-            transactional_score=trans_score,
-            alternative_score=alt_score,
+            transactional_score=Decimal("0.0"),
+            alternative_score=Decimal("0.0"),
             model_version=model_ver,
             confidence_rating=confidence,
             calculated_at=datetime.now(timezone.utc),
+            categorical_breakdown=categorical_breakdown,
+            raw_sub_scores=raw_sub_scores,
         )
         self.db.add(record)
         await self.db.flush()
@@ -99,6 +108,14 @@ class BrainService:
         return records
 
     @staticmethod
+    def _tier_from_score(score: int) -> RiskTier:
+        if score >= 650:
+            return RiskTier.LOW
+        elif score >= 500:
+            return RiskTier.MEDIUM
+        return RiskTier.HIGH
+
+    @staticmethod
     def get_risk_tier_detail(score: int, risk_tier: RiskTier) -> dict:
         ranges = {
             RiskTier.LOW: {"label": "Low Risk", "min": 50000, "max": 200000},
@@ -113,10 +130,10 @@ class BrainService:
             "recommended_loan_min": info["min"],
             "recommended_loan_max": info["max"],
             "contributing_factors": [
-                {"factor": "Satellite crop health (NDVI)", "weight": "35%"},
-                {"factor": "Sales & payment history", "weight": "35%"},
-                {"factor": "Mobile money activity", "weight": "20%"},
-                {"factor": "Climate resilience", "weight": "10%"},
+                {"factor": "Track record (30%)", "weight": "30%"},
+                {"factor": "Current cycle viability (30%)", "weight": "30%"},
+                {"factor": "Environmental exposure (25%)", "weight": "25%"},
+                {"factor": "Structural land security (15%)", "weight": "15%"},
             ],
         }
 

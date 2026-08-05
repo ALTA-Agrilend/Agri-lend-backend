@@ -128,11 +128,11 @@ async def get_parcels(farmer_id: str, db: AsyncSession = Depends(get_db), _: dic
 
 @router.get("/{farmer_id}/credit-score", response_model=CreditScoreResponse,
             summary="Get farmer's credit score",
-            description="Returns the current/latest credit score for a farmer.",
+            description="Returns the current credit score. Auto-refreshes from Amanuel if stored score is older than 24 hours.",
             responses={404: {"description": "No credit score found"}})
 async def get_credit_score(farmer_id: str, db: AsyncSession = Depends(get_db), _: dict = Depends(get_current_user)):
     service = CreditService(db)
-    score = await service.get_latest_score(farmer_id)
+    score = await service.get_valid_score(farmer_id)
     if not score:
         raise HTTPException(status_code=404, detail="No credit score found")
     return score
@@ -169,11 +169,11 @@ async def get_credit_history(
 
 @router.get("/{farmer_id}/explain", response_model=ExplainabilityResponse,
             summary="Explain credit score",
-            description="Returns a farmer-readable explanation of why the credit score was assigned, including top contributing factors.",
+            description="Returns a farmer-readable explanation of why the credit score was assigned, including top contributing factors. Auto-refreshes score if stored data is older than 24 hours.",
             responses={404: {"description": "No credit score found"}})
 async def explain_score(farmer_id: str, db: AsyncSession = Depends(get_db), _: dict = Depends(get_current_user)):
     credit_service = CreditService(db)
-    score = await credit_service.get_latest_score(farmer_id)
+    score = await credit_service.get_valid_score(farmer_id)
     if not score:
         raise HTTPException(status_code=404, detail="No credit score found")
     return await credit_service.get_explainability(farmer_id, score)

@@ -1,8 +1,10 @@
+import json
+from datetime import datetime, timezone, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func as sa_func
 from app.models.credit import CreditScoreRecord
-from app.schemas.credit import ExplainabilityResponse
-from app.services.scoring import ScoringService
+from app.schemas.credit import ExplainabilityResponse, CategoricalPointsBreakdown
+from app.core.config import settings
 
 
 class CreditService:
@@ -17,6 +19,24 @@ class CreditService:
             .limit(1)
         )
         return result.scalar_one_or_none()
+
+    async def get_valid_score(self, farmer_id: str) -> CreditScoreRecord | None:
+        latest = await self.get_latest_score(farmer_id)
+        if latest and not self._is_expired(latest):
+            return latest
+        from app.services.brain import BrainService
+        brain = BrainService(self.db)
+        return await brain.trigger_score_calculation(farmer_id)
+
+    @staticmethod
+    def _is_expired(record: CreditScoreRecord) -> bool:
+        if not record.calculated_at:
+            return True
+        calced = record.calculated_at
+        if calced.tzinfo is None:
+            calced = calced.replace(tzinfo=timezone.utc)
+        age = datetime.now(timezone.utc) - calced
+        return age > timedelta(hours=settings.credit_score_expiry_hours)
 
     async def get_score_history(self, farmer_id: str, page: int = 1, page_size: int = 20) -> tuple[list[CreditScoreRecord], int]:
         count_q = await self.db.execute(
@@ -35,14 +55,32 @@ class CreditService:
         return list(result.scalars().all()), total
 
     async def get_explainability(self, farmer_id: str, score: CreditScoreRecord) -> ExplainabilityResponse:
-        try:
-            scoring = ScoringService()
-            ai_explain = await scoring.get_explainability(farmer_id)
-            factors = ai_explain.get("features", [])
-            summary = ai_explain.get("summary", "")
-        except Exception:
+        categorical_breakdown = None
+        if score.categorical_breakdown:
+            try:
+                raw = json.loads(score.categorical_breakdown)
+                categorical_breakdown = CategoricalPointsBreakdown(**raw)
+            except Exception:
+                pass
+
+        if categorical_breakdown:
+            cats = categorical_breakdown
             factors = [
-                {"name": "Satellite crop health", "importance": 0.35, "value": f"{score.geospatial_score:.2f}"},
+                {"name": "Track record", "importance": 0.30, "value": round(cats.track_record_30pct.points_earned, 2), "max": cats.track_record_30pct.max_points},
+                {"name": "Current cycle viability", "importance": 0.30, "value": round(cats.current_cycle_viability_30pct.points_earned, 2), "max": cats.current_cycle_viability_30pct.max_points},
+                {"name": "Environmental exposure", "importance": 0.25, "value": round(cats.environmental_exposure_25pct.points_earned, 2), "max": cats.environmental_exposure_25pct.max_points},
+                {"name": "Structural land security", "importance": 0.15, "value": round(cats.structural_land_security_15pct.points_earned, 2), "max": cats.structural_land_security_15pct.max_points},
+            ]
+            summary = (
+                f"Your credit score is {score.score_value} ({score.risk_tier.value}). "
+                f"Track record contributed {cats.track_record_30pct.points_earned:.1f}/{cats.track_record_30pct.max_points:.0f} points, "
+                f"current cycle viability contributed {cats.current_cycle_viability_30pct.points_earned:.1f}/{cats.current_cycle_viability_30pct.max_points:.0f}, "
+                f"environmental exposure contributed {cats.environmental_exposure_25pct.points_earned:.1f}/{cats.environmental_exposure_25pct.max_points:.0f}, "
+                f"and structural land security contributed {cats.structural_land_security_15pct.points_earned:.1f}/{cats.structural_land_security_15pct.max_points:.0f}."
+            )
+        else:
+            factors = [
+                {"name": "Geospatial (NDVI)", "importance": 0.35, "value": f"{score.geospatial_score:.2f}"},
                 {"name": "Sales & payment history", "importance": 0.35, "value": f"{score.transactional_score:.2f}"},
                 {"name": "Mobile money activity", "importance": 0.20, "value": f"{score.alternative_score:.2f}"},
                 {"name": "Climate resilience", "importance": 0.10, "value": f"{score.alternative_score:.2f}"},
@@ -58,4 +96,5 @@ class CreditService:
             risk_tier=score.risk_tier.value,
             summary=summary,
             top_factors=factors,
+            categorical_breakdown=categorical_breakdown,
         )

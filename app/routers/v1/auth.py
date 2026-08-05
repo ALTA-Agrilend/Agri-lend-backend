@@ -62,7 +62,10 @@ async def get_me(current_user: dict = Depends(get_current_user), db: AsyncSessio
     user = await service.get_user_by_id(current_user.get("sub"))
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    resp = UserResponse.model_validate(user)
+    if user.role:
+        resp.role_name = user.role.name
+    return resp
 
 
 @router.patch("/me", response_model=UserResponse,
@@ -78,4 +81,7 @@ async def update_profile(
     user = await service.update_user(current_user["sub"], data)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    resp = UserResponse.model_validate(user)
+    if user.role:
+        resp.role_name = user.role.name
+    return resp

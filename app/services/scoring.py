@@ -1,5 +1,5 @@
 # Internal API contract with Amanuel (credit scoring / ML model service)
-# Consumes credit score, risk tier, and explainability output.
+# Single interaction: POST farmer_id + polygon (GeoJSON object) + crop_type.
 
 from app.core.config import settings
 import httpx
@@ -10,16 +10,14 @@ class ScoringService:
         self.base_url = settings.amanuel_service_url
         self.client = httpx.AsyncClient(timeout=30)
 
-    async def get_credit_score(self, farmer_id: str) -> dict:
-        response = await self.client.get(
-            f"{self.base_url}/api/v1/score/{farmer_id}",
-        )
-        response.raise_for_status()
-        return response.json()
-
-    async def get_explainability(self, farmer_id: str) -> dict:
-        response = await self.client.get(
-            f"{self.base_url}/api/v1/explain/{farmer_id}",
+    async def get_credit_score(self, farmer_id: str, polygon: dict | None, crop_type: str) -> dict:
+        response = await self.client.post(
+            f"{self.base_url}/evaluate-credit",
+            json={
+                "farmer_id": farmer_id,
+                "polygon": polygon,
+                "crop_type": crop_type,
+            },
         )
         response.raise_for_status()
         return response.json()

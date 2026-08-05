@@ -1,3 +1,4 @@
+from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_db
@@ -15,8 +16,8 @@ router = APIRouter(prefix="/brain", tags=["Brain Integration"])
              responses={404: {"description": "Farmer not found"}})
 async def trigger_score(
     farmer_id: str,
-    db: AsyncSession = Depends(get_db),
-    _: dict = Depends(require_roles("Platform Admin", "Risk Analyst")),
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[dict, Depends(require_roles("Platform Admin", "Risk Analyst"))],
 ):
     service = BrainService(db)
     record = await service.trigger_score_calculation(farmer_id)
@@ -30,8 +31,8 @@ async def trigger_score(
              description="Triggers credit score recalculation for every registered farmer. Requires Platform Admin.",
              responses={403: {"description": "Insufficient permissions"}})
 async def trigger_all_scores(
-    db: AsyncSession = Depends(get_db),
-    _: dict = Depends(require_roles("Platform Admin")),
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[dict, Depends(require_roles("Platform Admin"))],
 ):
     service = BrainService(db)
     records = await service.trigger_for_all_farmers()
@@ -40,15 +41,15 @@ async def trigger_all_scores(
 
 @router.get("/risk-tier/{farmer_id}",
             summary="Get risk tier detail",
-            description="Returns risk tier classification, contributing factors, and recommended loan range for a farmer.",
+            description="Returns risk tier classification, contributing factors, and recommended loan range for a farmer. Auto-refreshes score if stored data is older than the expiry hours specified in the configuration.",
             responses={404: {"description": "No credit score found"}})
 async def risk_tier_detail(
     farmer_id: str,
-    db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[dict, Depends(get_current_user)],
 ):
     credit = CreditService(db)
-    score = await credit.get_latest_score(farmer_id)
+    score = await credit.get_valid_score(farmer_id)
     if not score:
         raise HTTPException(status_code=404, detail="No credit score found")
     return BrainService.get_risk_tier_detail(score.score_value, score.risk_tier)
@@ -59,7 +60,7 @@ async def risk_tier_detail(
              description="Webhook endpoint called by Eyosiyas's pipeline when new satellite data is ingested for a parcel. Triggers score recalculation.")
 async def satellite_ingestion_webhook(
     parcel_id: str,
-    db: AsyncSession = Depends(get_db),
+    db: Annotated[AsyncSession, Depends(get_db)],
 ):
     service = BrainService(db)
     return await service.handle_satellite_ingestion_webhook(parcel_id)
@@ -71,8 +72,8 @@ async def satellite_ingestion_webhook(
             responses={404: {"description": "Farmer not found"}})
 async def yield_prediction(
     farmer_id: str,
-    db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[dict, Depends(get_current_user)],
 ):
     from app.services.farmer import FarmerService
     service = FarmerService(db)
