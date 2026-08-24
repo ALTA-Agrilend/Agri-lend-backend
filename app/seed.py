@@ -44,10 +44,10 @@ DEFAULT_USERS = [
 ]
 
 MOCK_BANKS = [
-    {"bank_name": "AgriBank International", "subscription_tier": "enterprise", "api_key_hash": "hash_agribank_01"},
-    {"bank_name": "EcoLend Microfinance", "subscription_tier": "standard", "api_key_hash": "hash_ecolend_02"},
-    {"bank_name": "Horizon Agro Credit", "subscription_tier": "enterprise", "api_key_hash": "hash_horizon_03"},
-    {"bank_name": "Savanna Farmers Co-op", "subscription_tier": "standard", "api_key_hash": "hash_savanna_04"},
+    {"bank_name": "AgriBank International", "interest_rate": Decimal("8.50"), "subscription_tier": "enterprise"},
+    {"bank_name": "EcoLend Microfinance", "interest_rate": Decimal("10.25"), "subscription_tier": "standard"},
+    {"bank_name": "Horizon Agro Credit", "interest_rate": Decimal("9.75"), "subscription_tier": "enterprise"},
+    {"bank_name": "Savanna Farmers Co-op", "interest_rate": Decimal("12.00"), "subscription_tier": "standard"},
 ]
 
 MOCK_FARMERS = [
@@ -403,8 +403,8 @@ async def seed_mock_data() -> None:
             if not existing_bank:
                 new_bank = BankPartner(
                     bank_name=b["bank_name"],
+                    interest_rate=b["interest_rate"],
                     subscription_tier=b["subscription_tier"],
-                    api_key_hash=b["api_key_hash"],
                     is_active=True,
                 )
                 session.add(new_bank)

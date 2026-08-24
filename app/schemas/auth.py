@@ -65,6 +65,7 @@ class UserResponse(BaseModel):
     role_name: Optional[str] = None
     bank_id: Optional[UUID] = None
     bank_name: Optional[str] = None
+    bank_interest_rate: Optional[float] = None
     is_active: bool
     locale: str
     created_at: datetime

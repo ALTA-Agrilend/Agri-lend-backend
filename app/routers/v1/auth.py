@@ -67,6 +67,11 @@ async def get_me(current_user: dict = Depends(get_current_user), db: AsyncSessio
         resp.role_name = user.role.name
     resp.bank_id = user.bank_id
     resp.bank_name = user.bank.bank_name if user.bank else None
+    resp.bank_interest_rate = (
+        float(user.bank.interest_rate)
+        if user.bank and user.bank.interest_rate is not None
+        else None
+    )
     return resp
 
 
@@ -88,4 +93,9 @@ async def update_profile(
         resp.role_name = user.role.name
     resp.bank_id = user.bank_id
     resp.bank_name = user.bank.bank_name if user.bank else None
+    resp.bank_interest_rate = (
+        float(user.bank.interest_rate)
+        if user.bank and user.bank.interest_rate is not None
+        else None
+    )
     return resp

@@ -24,6 +24,8 @@ class LoanApplicationResponse(BaseModel):
     submitted_at: datetime
     reviewed_at: Optional[datetime]
     reviewed_by: Optional[UUID]
+    interest_rate_applied: Optional[Decimal] = None
+    repayment_amount: Optional[Decimal] = None
 
     model_config = {"from_attributes": True}
 

@@ -59,8 +59,7 @@ class TestLoanService:
 
     async def _create_test_bank(self, session: AsyncSession):
         from app.models.bank import BankPartner
-        from app.core.security import hash_password
-        bank = BankPartner(bank_name="Test Bank", api_key_hash=hash_password("test-api-key"))
+        bank = BankPartner(bank_name="Test Bank")
         session.add(bank)
         await session.flush()
         return bank

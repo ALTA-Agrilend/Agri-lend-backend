@@ -2,8 +2,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func as sa_func
 from app.models.loan import LoanApplication, LoanStatus
 from app.models.farmer import FarmerProfile, FarmParcel
+from app.models.bank import BankPartner
 from app.schemas.loan import LoanApplicationCreate, LoanListFilter
 from datetime import datetime, timezone
+from decimal import Decimal
 from uuid import UUID as UUIDType
 
 
@@ -172,6 +174,10 @@ class LoanService:
             "status": app.status.value,
             "submitted_at": app.submitted_at,
             "reviewed_at": app.reviewed_at,
+            "interest_rate_applied": float(app.interest_rate_applied) if app.interest_rate_applied is not None else None,
+            "repayment_amount": float(app.repayment_amount) if app.repayment_amount is not None else None,
+            "interest_rate_applied": float(app.interest_rate_applied) if app.interest_rate_applied is not None else None,
+            "repayment_amount": float(app.repayment_amount) if app.repayment_amount is not None else None,
             "credit_score_at_application": app.credit_score_at_application,
             "credit_score_snapshot": app.credit_score_at_application,
             "credit_score_current": current_score.score_value if current_score else None,
@@ -238,5 +244,19 @@ class LoanService:
         app.status = status
         app.reviewed_by = to_uuid(reviewer_id)
         app.reviewed_at = datetime.now(timezone.utc)
+        if status in (LoanStatus.APPROVED, LoanStatus.DISBURSED):
+            await self._apply_repayment_terms(app)
         await self.db.flush()
         return app
+
+    async def _apply_repayment_terms(self, app: LoanApplication) -> None:
+        """Snapshot the lending bank's interest rate and compute the total payable amount."""
+        bank_result = await self.db.execute(
+            select(BankPartner).where(BankPartner.id == app.bank_id)
+        )
+        bank = bank_result.scalar_one_or_none()
+        rate = float(bank.interest_rate) if bank and bank.interest_rate is not None else 0.0
+        app.interest_rate_applied = Decimal(str(rate))
+        app.repayment_amount = (app.requested_amount * (Decimal("1") + Decimal(str(rate)) / Decimal("100"))).quantize(
+            Decimal("0.01")
+        )

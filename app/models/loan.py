@@ -30,5 +30,9 @@ class LoanApplication(TimestampMixin, Base):
     )
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     reviewed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"))
+    # Snapshot of the lending bank's interest rate and resulting payable amount,
+    # stamped when the loan is approved so later rate changes don't rewrite history.
+    interest_rate_applied: Mapped[Decimal | None] = mapped_column(Numeric(5, 2))
+    repayment_amount: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
 
     farmer: Mapped["FarmerProfile"] = relationship("FarmerProfile", back_populates="loan_applications")

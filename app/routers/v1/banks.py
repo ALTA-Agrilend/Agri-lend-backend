@@ -1,27 +1,55 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func as sa_func
+from decimal import Decimal
 from typing import Optional
 from app.db.session import get_db
 from app.schemas.bank import BankPartnerCreate, BankPartnerResponse, BankSettingsUpdate
 from app.schemas import PaginatedResponse
 from app.core.dependencies import get_current_user, require_roles
 from app.models.bank import BankPartner
+from app.models.auth import User, Role
 from app.services.auth import AuthService
 
 router = APIRouter(prefix="/banks", tags=["Banks"])
 
 
 @router.post("/", response_model=BankPartnerResponse, status_code=201,
-             summary="Create a bank partner",
-             description="Register a new bank partner. Requires Platform Admin.")
+             summary="Create a bank partner with its analyst account",
+             description="Registers a new institution and provisions exactly one login account "
+                         "(Bank Analyst role) for it. Requires Platform Admin.",
+             responses={409: {"description": "Analyst email already registered"}})
 async def create_bank(
     data: BankPartnerCreate,
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Platform Admin")),
 ):
-    bank = BankPartner(bank_name=data.bank_name, subscription_tier=data.subscription_tier)
+    existing_account = await db.execute(select(User).where(User.email == data.analyst_email))
+    if existing_account.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="A user with this email already exists")
+
+    role_result = await db.execute(select(Role).where(Role.name == "Bank Analyst"))
+    analyst_role = role_result.scalar_one_or_none()
+    if not analyst_role:
+        raise HTTPException(status_code=500, detail="Bank Analyst role missing — seed the database")
+
+    bank = BankPartner(
+        bank_name=data.bank_name,
+        interest_rate=Decimal(str(data.interest_rate)),
+        subscription_tier=data.subscription_tier,
+    )
     db.add(bank)
+    await db.flush()
+
+    from app.core.security import hash_password
+    analyst = User(
+        email=data.analyst_email,
+        hashed_password=hash_password(data.analyst_password),
+        full_name=data.analyst_full_name,
+        role_id=analyst_role.id,
+        bank_id=bank.id,
+    )
+    db.add(analyst)
     await db.flush()
     return bank
 
@@ -68,8 +96,9 @@ async def get_bank(
 
 
 @router.patch("/{bank_id}/settings",
-              summary="Update bank settings",
-              description="Update bank name or subscription tier. Requires Bank Administrator or Platform Admin.",
+              summary="Update bank lending settings",
+              description="Banks can only adjust their annual interest rate — institution names are immutable. "
+                          "Requires Bank Administrator or Platform Admin.",
               responses={404: {"description": "Bank not found"}})
 async def update_bank_settings(
     bank_id: str,
@@ -82,10 +111,8 @@ async def update_bank_settings(
     bank = result.scalar_one_or_none()
     if not bank:
         raise HTTPException(status_code=404, detail="Bank not found")
-    if data.bank_name is not None:
-        bank.bank_name = data.bank_name
-    if data.subscription_tier is not None:
-        bank.subscription_tier = data.subscription_tier
+    if data.interest_rate is not None:
+        bank.interest_rate = Decimal(str(data.interest_rate))
     await db.flush()
     audit = AuthService(db)
     await audit.log_audit(
@@ -93,6 +120,10 @@ async def update_bank_settings(
         action="UPDATE_BANK_SETTINGS",
         resource="BankPartner",
         resource_id=bank_id,
+        details=f"interest_rate={data.interest_rate}" if data.interest_rate is not None else None,
         ip=request.client.host if request.client else None,
     )
-    return {"detail": "Bank settings updated"}
+    return {
+        "detail": "Bank settings updated",
+        "interest_rate": float(bank.interest_rate) if bank.interest_rate is not None else None,
+    }
