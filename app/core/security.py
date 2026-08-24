@@ -24,11 +24,13 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_access_token(subject: str, role: str, expires_delta: Optional[timedelta] = None) -> str:
+def create_access_token(subject: str, role: str, expires_delta: Optional[timedelta] = None, bank_id=None) -> str:
     expire = datetime.now(timezone.utc) + (
         expires_delta or timedelta(minutes=settings.jwt_access_token_expire_minutes)
     )
     payload = {"sub": subject, "role": role, "exp": expire, "type": "access"}
+    if bank_id:
+        payload["bank_id"] = str(bank_id)
     return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 

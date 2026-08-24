@@ -33,12 +33,16 @@ class AuthService:
         role = await self._get_role(data.role_name)
         if not role:
             raise ValueError(f"Role '{data.role_name}' not found")
+        bank_id = to_uuid(getattr(data, "bank_id", None))
+        if getattr(data, "bank_id", None) and not bank_id:
+            raise ValueError("Invalid bank_id")
         user = User(
             email=data.email,
             phone_number=data.phone_number,
             hashed_password=hash_password(data.password),
             full_name=data.full_name,
             role_id=role.id,
+            bank_id=bank_id,
         )
         self.db.add(user)
         await self.db.flush()
@@ -51,7 +55,7 @@ class AuthService:
             return None
         if not user.is_active:
             return None
-        access = create_access_token(str(user.id), user.role.name)
+        access = create_access_token(str(user.id), user.role.name, bank_id=user.bank_id)
         refresh = create_refresh_token(str(user.id))
         return user, access, refresh
 
@@ -62,7 +66,7 @@ class AuthService:
         user = await self.get_user_by_id(payload["sub"])
         if not user or not user.is_active:
             return None
-        access = create_access_token(str(user.id), user.role.name)
+        access = create_access_token(str(user.id), user.role.name, bank_id=user.bank_id)
         return access, refresh_token
 
     async def get_user_by_id(self, user_id: str | UUID) -> User | None:

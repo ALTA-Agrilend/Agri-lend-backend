@@ -21,6 +21,7 @@ class FarmerProfile(TimestampMixin, Base):
     consent_status: Mapped[bool] = mapped_column(Boolean, default=False)
     consent_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     locale: Mapped[str] = mapped_column(String(10), default="en")
+    registered_by_bank_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("bank_partners.id"), nullable=True)
 
     parcels: Mapped[list["FarmParcel"]] = relationship("FarmParcel", back_populates="farmer")
     credit_scores: Mapped[list["CreditScoreRecord"]] = relationship("CreditScoreRecord", back_populates="farmer")

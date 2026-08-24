@@ -65,6 +65,8 @@ async def get_me(current_user: dict = Depends(get_current_user), db: AsyncSessio
     resp = UserResponse.model_validate(user)
     if user.role:
         resp.role_name = user.role.name
+    resp.bank_id = user.bank_id
+    resp.bank_name = user.bank.bank_name if user.bank else None
     return resp
 
 
@@ -84,4 +86,6 @@ async def update_profile(
     resp = UserResponse.model_validate(user)
     if user.role:
         resp.role_name = user.role.name
+    resp.bank_id = user.bank_id
+    resp.bank_name = user.bank.bank_name if user.bank else None
     return resp

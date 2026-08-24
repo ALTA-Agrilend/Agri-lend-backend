@@ -50,7 +50,7 @@ class LoanService:
         result = await self.db.execute(query)
         return list(result.scalars().all())
 
-    async def get_filtered_applications(self, filters: LoanListFilter) -> dict:
+    async def get_filtered_applications(self, filters: LoanListFilter, bank_id=None) -> dict:
         base_query = (
             select(
                 LoanApplication, FarmerProfile.full_name, FarmerProfile.phone_number,
@@ -62,6 +62,10 @@ class LoanService:
         count_query = select(sa_func.count(LoanApplication.id)).select_from(LoanApplication).join(
             FarmerProfile, LoanApplication.farmer_id == FarmerProfile.id
         ).join(FarmParcel, FarmParcel.farmer_id == FarmerProfile.id, isouter=True)
+
+        if bank_id is not None:
+            base_query = base_query.where(LoanApplication.bank_id == bank_id)
+            count_query = count_query.where(LoanApplication.bank_id == bank_id)
 
         if filters.status:
             base_query = base_query.where(LoanApplication.status == filters.status)
@@ -178,14 +182,19 @@ class LoanService:
             "land_verified": bool(profile.land_proof_document) if profile else False,
         }
 
-    async def get_dashboard_report(self) -> dict:
-        total_q = await self.db.execute(sa_func.count(LoanApplication.id).select())
+    async def get_dashboard_report(self, bank_id=None) -> dict:
+        scope = LoanApplication.bank_id == bank_id if bank_id is not None else None
+        total_stmt = select(sa_func.count(LoanApplication.id))
+        if scope is not None:
+            total_stmt = total_stmt.where(scope)
+        total_q = await self.db.execute(total_stmt)
         total = total_q.scalar() or 0
         counts = {}
         for status in LoanStatus:
-            result = await self.db.execute(
-                select(sa_func.count(LoanApplication.id)).where(LoanApplication.status == status)
-            )
+            stmt = select(sa_func.count(LoanApplication.id)).where(LoanApplication.status == status)
+            if scope is not None:
+                stmt = stmt.where(scope)
+            result = await self.db.execute(stmt)
             counts[status.value] = result.scalar() or 0
         return {
             "total": total,
@@ -195,7 +204,7 @@ class LoanService:
             "disbursed": counts.get("DISBURSED", 0),
         }
 
-    async def get_high_risk_warnings(self) -> list[dict]:
+    async def get_high_risk_warnings(self, bank_id=None) -> list[dict]:
         query = (
             select(LoanApplication, FarmerProfile.full_name)
             .join(FarmerProfile, LoanApplication.farmer_id == FarmerProfile.id)
@@ -206,6 +215,8 @@ class LoanService:
             .order_by(LoanApplication.credit_score_at_application.asc())
             .limit(20)
         )
+        if bank_id is not None:
+            query = query.where(LoanApplication.bank_id == bank_id)
         result = await self.db.execute(query)
         rows = result.all()
         return [

@@ -5,6 +5,14 @@ from app.models.satellite import SatelliteObservation
 from app.models.loan import LoanApplication
 from app.models.bank import BankPartner
 from app.models.audit import AuditLog, ModelVersion
+from app.models.ops import (
+    FarmerVerificationQueue,
+    SupportTicket,
+    CommandLog,
+    SystemSetting,
+    Notification,
+    PipelineRun,
+)
 
 __all__ = [
     "User", "Role",
@@ -14,4 +22,10 @@ __all__ = [
     "LoanApplication",
     "BankPartner",
     "AuditLog", "ModelVersion",
+    "FarmerVerificationQueue",
+    "SupportTicket",
+    "CommandLog",
+    "SystemSetting",
+    "Notification",
+    "PipelineRun",
 ]

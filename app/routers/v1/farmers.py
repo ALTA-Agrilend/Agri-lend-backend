@@ -10,27 +10,36 @@ from app.schemas.credit import CreditScoreResponse, CreditScoreHistoryResponse, 
 from app.schemas import PaginatedResponse
 from app.services.farmer import FarmerService
 from app.services.credit import CreditService
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import (
+    get_current_user,
+    get_optional_user,
+    get_scope_bank_id,
+    require_roles,
+)
 
 router = APIRouter(prefix="/farmers", tags=["Farmers"])
 
 
 @router.post("/register", status_code=201,
              summary="Register a new farmer",
-             description="Creates a farmer user, profile, and optionally a farm parcel in a single transaction.")
+             description="Creates a farmer user, profile, and optionally a farm parcel in a single transaction. "
+                         "When called by a bank user, the farmer is linked to that institution for data scoping.")
 async def register_hub(
     data: FarmerRegistrationHub,
     db: AsyncSession = Depends(get_db),
+    current_user: dict | None = Depends(get_optional_user),
 ):
     service = FarmerService(db)
+    registered_by_bank_id = get_scope_bank_id(current_user) if current_user else None
     try:
-        profile, parcel = await service.register_hub(data)
+        profile, parcel = await service.register_hub(data, registered_by_bank_id=registered_by_bank_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {
         "farmer_id": profile.id,
         "full_name": profile.full_name,
         "parcel_id": str(parcel.id) if parcel else None,
+        "registered_by_bank_id": str(registered_by_bank_id) if registered_by_bank_id else None,
         "detail": "Farmer registered successfully",
     }
 
@@ -48,6 +57,24 @@ async def list_farmers(
 ):
     service = FarmerService(db)
     return await service.list_farmers(page=page, page_size=page_size, region=region)
+
+
+@router.get("/search",
+            summary="Search farmers",
+            description="Search farmers by name, phone, national ID, or email. Bank users only see farmers "
+                        "registered by their institution or those with loan applications to it.",
+            responses={403: {"description": "Insufficient permissions"}})
+async def search_farmers(
+    q: str = Query("", description="Search query"),
+    region: Optional[str] = Query(None, description="Filter by region"),
+    limit: int = Query(50, ge=1, le=200, description="Max results"),
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_roles("Bank Analyst", "Bank Administrator", "Platform Admin")),
+):
+    service = FarmerService(db)
+    return await service.search(
+        q=q, region=region, limit=limit, bank_id=get_scope_bank_id(current_user)
+    )
 
 
 @router.get("/profile/{farmer_id}", response_model=FarmerProfileResponse,

@@ -26,6 +26,7 @@ class UserCreate(BaseModel):
     full_name: str = Field(..., min_length=1, max_length=255)
     role_name: str = Field(..., max_length=50)
     phone_number: Optional[str] = Field(None, max_length=20)
+    bank_id: Optional[UUID] = None
 
     @field_validator("email")
     @classmethod
@@ -62,6 +63,8 @@ class UserResponse(BaseModel):
     full_name: str
     role_id: UUID
     role_name: Optional[str] = None
+    bank_id: Optional[UUID] = None
+    bank_name: Optional[str] = None
     is_active: bool
     locale: str
     created_at: datetime

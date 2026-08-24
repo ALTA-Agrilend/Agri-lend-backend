@@ -11,7 +11,7 @@ from app.schemas.loan import (
 from app.models.loan import LoanStatus
 from app.services.loan import LoanService
 from app.services.credit import CreditService
-from app.core.dependencies import get_current_user, require_roles
+from app.core.dependencies import get_current_user, get_scope_bank_id, require_roles
 
 router = APIRouter(prefix="/loans", tags=["Loans"])
 
@@ -34,7 +34,8 @@ async def create_loan(
 
 @router.get("/",
             summary="List loan applications",
-            description="Returns filtered and paginated loan applications with farmer details.")
+            description="Returns filtered and paginated loan applications with farmer details. "
+                        "Bank users only see applications submitted to their institution.")
 async def list_loans(
     farmer_id: Optional[str] = Query(None, description="Filter by farmer ID"),
     status: Optional[LoanStatus] = Query(None, description="Filter by status (PENDING/APPROVED/REJECTED/DISBURSED)"),
@@ -45,7 +46,7 @@ async def list_loans(
     page: int = Query(1, ge=1, description="Page number"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page"),
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     filters = LoanListFilter(
         status=status, region=region, crop_type=crop_type,
@@ -53,7 +54,7 @@ async def list_loans(
         page=page, page_size=page_size,
     )
     service = LoanService(db)
-    return await service.get_filtered_applications(filters)
+    return await service.get_filtered_applications(filters, bank_id=get_scope_bank_id(current_user))
 
 
 @router.get("/reports/dashboard", response_model=DashboardReportResponse,
@@ -62,10 +63,10 @@ async def list_loans(
             responses={403: {"description": "Insufficient permissions"}})
 async def dashboard_report(
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(require_roles("Bank Analyst", "Bank Administrator", "Platform Admin")),
+    current_user: dict = Depends(require_roles("Bank Analyst", "Bank Administrator", "Platform Admin")),
 ):
     service = LoanService(db)
-    return await service.get_dashboard_report()
+    return await service.get_dashboard_report(bank_id=get_scope_bank_id(current_user))
 
 
 @router.get("/reports/high-risk", response_model=list[HighRiskLoanWarning],
@@ -74,10 +75,10 @@ async def dashboard_report(
             responses={403: {"description": "Insufficient permissions"}})
 async def high_risk_warnings(
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(require_roles("Bank Analyst", "Bank Administrator", "Platform Admin")),
+    current_user: dict = Depends(require_roles("Bank Analyst", "Bank Administrator", "Platform Admin")),
 ):
     service = LoanService(db)
-    return await service.get_high_risk_warnings()
+    return await service.get_high_risk_warnings(bank_id=get_scope_bank_id(current_user))
 
 
 @router.get("/reports/heatmap", response_model=list[RiskHeatmapPoint],
