@@ -1,6 +1,6 @@
 import json
 from decimal import Decimal
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from app.db.session import async_session_factory
 from app.models.auth import Role, User
@@ -57,7 +57,7 @@ MOCK_FARMERS = [
         "phone_number": "+254711223344",
         "national_id": "ID-KEN-908124",
         "region": "Central Highlands",
-        "crop": "Maize",
+        "crop": "Teff",
         "hectares": Decimal("4.50"),
         "gps": "-1.286389, 36.817223",
         "score": 742,
@@ -72,7 +72,7 @@ MOCK_FARMERS = [
         "phone_number": "+233244556677",
         "national_id": "ID-GHA-771829",
         "region": "Ashanti Region",
-        "crop": "Cocoa",
+        "crop": "Coffee",
         "hectares": Decimal("12.00"),
         "gps": "6.688480, -1.624430",
         "score": 780,
@@ -87,7 +87,7 @@ MOCK_FARMERS = [
         "phone_number": "+254722334455",
         "national_id": "ID-KEN-445129",
         "region": "Rift Valley",
-        "crop": "Wheat",
+        "crop": "Teff",
         "hectares": Decimal("8.20"),
         "gps": "0.514277, 35.269779",
         "score": 690,
@@ -117,7 +117,7 @@ MOCK_FARMERS = [
         "phone_number": "+233200112233",
         "national_id": "ID-GHA-339102",
         "region": "Volta Basin",
-        "crop": "Rice",
+        "crop": "Teff",
         "hectares": Decimal("15.00"),
         "gps": "6.125000, 0.050000",
         "score": 810,
@@ -132,7 +132,7 @@ MOCK_FARMERS = [
         "phone_number": "+254744556677",
         "national_id": "ID-KEN-119283",
         "region": "North Plateau",
-        "crop": "Tea",
+        "crop": "Coffee",
         "hectares": Decimal("6.80"),
         "gps": "0.333333, 35.166667",
         "score": 590,
@@ -147,7 +147,7 @@ MOCK_FARMERS = [
         "phone_number": "+2348011223344",
         "national_id": "ID-NGA-662910",
         "region": "Savannah North",
-        "crop": "Soybeans",
+        "crop": "Teff",
         "hectares": Decimal("9.40"),
         "gps": "10.516667, 7.433333",
         "score": 715,
@@ -162,7 +162,7 @@ MOCK_FARMERS = [
         "phone_number": "+254755667788",
         "national_id": "ID-KEN-554201",
         "region": "Mount Kenya",
-        "crop": "Potatoes",
+        "crop": "Teff",
         "hectares": Decimal("2.80"),
         "gps": "-0.150000, 37.300000",
         "score": 660,
@@ -177,7 +177,7 @@ MOCK_FARMERS = [
         "phone_number": "+255713334455",
         "national_id": "ID-TZA-204871",
         "region": "Northern Rift",
-        "crop": "Sunflower",
+        "crop": "Coffee",
         "hectares": Decimal("5.20"),
         "gps": "-3.366667, 36.683333",
         "score": 700,
@@ -192,7 +192,7 @@ MOCK_FARMERS = [
         "phone_number": "+254766778899",
         "national_id": "ID-KEN-731122",
         "region": "Central Rift",
-        "crop": "Avocado",
+        "crop": "Teff",
         "hectares": Decimal("7.50"),
         "gps": "-1.100000, 36.783333",
         "score": 745,
@@ -207,7 +207,7 @@ MOCK_FARMERS = [
         "phone_number": "+254711998877",
         "national_id": "ID-KEN-990324",
         "region": "North Eastern",
-        "crop": "Sorghum",
+        "crop": "Coffee",
         "hectares": Decimal("11.30"),
         "gps": "0.500000, 40.000000",
         "score": 610,
@@ -222,7 +222,7 @@ MOCK_FARMERS = [
         "phone_number": "+254722667788",
         "national_id": "ID-KEN-118877",
         "region": "Southern Rift",
-        "crop": "Barley",
+        "crop": "Teff",
         "hectares": Decimal("9.80"),
         "gps": "-0.600000, 35.350000",
         "score": 728,
@@ -237,7 +237,7 @@ MOCK_FARMERS = [
         "phone_number": "+254733889900",
         "national_id": "ID-KEN-667890",
         "region": "Lake Basin",
-        "crop": "Rice",
+        "crop": "Teff",
         "hectares": Decimal("4.30"),
         "gps": "-0.280000, 34.750000",
         "score": 550,
@@ -252,7 +252,7 @@ MOCK_FARMERS = [
         "phone_number": "+255712445566",
         "national_id": "ID-TZA-885512",
         "region": "Coastal Belt",
-        "crop": "Cashew",
+        "crop": "Coffee",
         "hectares": Decimal("13.60"),
         "gps": "-6.800000, 39.283333",
         "score": 790,
@@ -385,9 +385,8 @@ async def seed_ops_data() -> None:
         if not run_res.scalar_one_or_none():
             session.add_all([
                 PipelineRun(pipeline_name="Satellite_HighRes", status="RUNNING", duration_seconds=872.0, started_at=now),
-                PipelineRun(pipeline_name="Weather_Forecast_AP", status="SUCCESS", duration_seconds=131.0, started_at=now),
-                PipelineRun(pipeline_name="Soil_Moisture_Sensor_Cluster", status="FAILED", duration_seconds=45.0, started_at=now),
-                PipelineRun(pipeline_name="Weather_Historical_Backfill", status="SUCCESS", duration_seconds=2652.0, started_at=now),
+                PipelineRun(pipeline_name="Mobile_Money_Ingress", status="SUCCESS", duration_seconds=131.0, started_at=now),
+                PipelineRun(pipeline_name="Cooperative_Harvest_Registry", status="FAILED", duration_seconds=45.0, started_at=now),
             ])
 
         await session.commit()
@@ -509,5 +508,60 @@ async def seed_mock_data() -> None:
         bank_user = bank_user_res.scalar_one_or_none()
         if bank_user and not bank_user.bank_id and bank_list:
             bank_user.bank_id = bank_list[0].id
+
+        # 3. Backdated demo activity so monthly reports/charts have history.
+        # Deterministic (fixed emails/amounts) so seeding stays idempotent.
+        now_dt = datetime.now(timezone.utc)
+        for months_ago in range(1, 7):
+            stamp = now_dt - timedelta(days=30 * months_ago)
+            for k in range(2):
+                email = f"history.m{months_ago}.{k}@agrifarm.org"
+                user_res = await session.execute(select(User).where(User.email == email))
+                user = user_res.scalar_one_or_none()
+                if not user:
+                    full_name = f"History Farmer M{months_ago}-{k + 1}"
+                    user = User(
+                        email=email,
+                        hashed_password=hash_password("Farmer@123"),
+                        full_name=full_name,
+                        phone_number=f"+2549000{months_ago:02d}{k:03d}",
+                        role_id=farmer_role.id,
+                        is_active=True,
+                        created_at=stamp,
+                    )
+                    session.add(user)
+                    await session.flush()
+
+                profile_res = await session.execute(select(FarmerProfile).where(FarmerProfile.user_id == user.id))
+                profile = profile_res.scalar_one_or_none()
+                if not profile:
+                    profile = FarmerProfile(
+                        user_id=user.id,
+                        full_name=user.full_name,
+                        national_id=f"ID-HIST-{months_ago:02d}{k:03d}",
+                        phone_number=user.phone_number,
+                        consent_status=True,
+                        registered_by_bank_id=bank_list[months_ago % len(bank_list)].id if bank_list else None,
+                        created_at=stamp,
+                    )
+                    session.add(profile)
+                    await session.flush()
+
+                loan_res = await session.execute(select(LoanApplication).where(LoanApplication.farmer_id == profile.id))
+                if not loan_res.scalar_one_or_none():
+                    score = 480 + ((months_ago * 13 + k * 47) % 320)
+                    status = LoanStatus.APPROVED if (months_ago + k) % 3 else LoanStatus.REJECTED
+                    if months_ago >= 5 and k == 1:
+                        status = LoanStatus.DISBURSED
+                    session.add(LoanApplication(
+                        farmer_id=profile.id,
+                        bank_id=bank_list[(months_ago + k) % len(bank_list)].id if bank_list else None,
+                        requested_amount=Decimal("1500") + Decimal(str((months_ago * 400 + k * 650))),
+                        loan_purpose="Seasonal inputs and equipment leasing",
+                        credit_score_at_application=score,
+                        status=status,
+                        submitted_at=stamp,
+                        reviewed_at=stamp + timedelta(days=4),
+                    ))
 
         await session.commit()

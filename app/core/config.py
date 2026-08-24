@@ -1,3 +1,4 @@
+from pydantic import model_validator
 from pydantic_settings import BaseSettings
 from typing import List
 import json
@@ -26,6 +27,16 @@ class Settings(BaseSettings):
 
     log_level: str = "INFO"
     audit_log_enabled: bool = True
+
+    @model_validator(mode="after")
+    def _normalize_database_url(self):
+        """Render/heroku style URLs (postgres:// or postgresql://) must be rewritten for asyncpg."""
+        url = self.database_url
+        if url.startswith("postgres://"):
+            self.database_url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+        elif url.startswith("postgresql://"):
+            self.database_url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+        return self
 
     @property
     def cors_origin_list(self) -> List[str]:

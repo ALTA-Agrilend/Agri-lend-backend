@@ -202,12 +202,18 @@ class LoanService:
                 stmt = stmt.where(scope)
             result = await self.db.execute(stmt)
             counts[status.value] = result.scalar() or 0
+        avg_stmt = select(sa_func.avg(LoanApplication.credit_score_at_application))
+        if scope is not None:
+            avg_stmt = avg_stmt.where(scope)
+        avg_q = await self.db.execute(avg_stmt)
+        avg_score = avg_q.scalar()
         return {
             "total": total,
             "approved": counts.get("APPROVED", 0),
             "rejected": counts.get("REJECTED", 0),
             "pending": counts.get("PENDING", 0),
             "disbursed": counts.get("DISBURSED", 0),
+            "avg_score": round(float(avg_score)) if avg_score is not None else None,
         }
 
     async def get_high_risk_warnings(self, bank_id=None) -> list[dict]:

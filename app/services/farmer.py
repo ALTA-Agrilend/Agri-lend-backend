@@ -3,6 +3,7 @@ from sqlalchemy import select, func as sa_func, or_
 from typing import Optional
 from app.models.farmer import FarmerProfile, FarmParcel
 from app.models.loan import LoanApplication
+from app.models.credit import CreditScoreRecord
 from app.models.auth import User
 from app.schemas.farmer import FarmerRegistrationHub, FarmParcelCreate
 from app.core.security import hash_password
@@ -102,10 +103,23 @@ class FarmerService:
         }
 
     async def search(self, q: str, region: Optional[str] = None, limit: int = 50, bank_id=None) -> list[dict]:
+        latest_score = (
+            select(CreditScoreRecord.score_value)
+            .where(CreditScoreRecord.farmer_id == FarmerProfile.id)
+            .order_by(CreditScoreRecord.calculated_at.desc())
+            .limit(1)
+            .scalar_subquery()
+        )
         query = (
-            select(FarmerProfile, User.email, FarmParcel.region, FarmParcel.primary_crop)
-            .join(User, FarmerProfile.user_id == User.id)
-            .outerjoin(FarmParcel, FarmParcel.farmer_id == FarmerProfile.id)
+            select(
+                FarmerProfile,
+                FarmParcel.region,
+                FarmParcel.primary_crop,
+                FarmParcel.size_hectares,
+                latest_score,
+            )
+            .join(FarmParcel, FarmParcel.farmer_id == FarmerProfile.id, isouter=True)
+            .outerjoin(User, FarmerProfile.user_id == User.id)
             .order_by(FarmerProfile.created_at.desc())
             .limit(limit)
         )
@@ -133,15 +147,16 @@ class FarmerService:
                 "id": p.id,
                 "full_name": p.full_name,
                 "phone_number": p.phone_number,
-                "email": email,
                 "national_id": p.national_id,
                 "region": region_val,
                 "primary_crop": crop_val,
+                "farm_size": float(size_val) if size_val is not None else None,
+                "credit_score": int(score_val) if score_val is not None else None,
                 "gps_coordinates": p.gps_coordinates,
                 "land_proof_document": p.land_proof_document,
                 "consent_status": p.consent_status,
             }
-            for p, email, region_val, crop_val in result.all()
+            for p, region_val, crop_val, size_val, score_val in result.all()
         ]
 
     async def set_consent(self, farmer_id: str, consent: bool) -> FarmerProfile | None:

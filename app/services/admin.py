@@ -34,6 +34,88 @@ class AdminService:
             "with_mobile_money": with_mm,
         }
 
+    async def monthly_report(self, months: int = 12) -> list[dict]:
+        """Per-calendar-month aggregates of farmer registrations and loan activity."""
+        months = max(1, min(months, 24))
+        now = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        # Walk back to the first bucket
+        year, month = now.year, now.month
+        for _ in range(months - 1):
+            month -= 1
+            if month == 0:
+                month = 12
+                year -= 1
+
+        buckets = []
+        y, m = year, month
+        for _ in range(months):
+            buckets.append((y, m))
+            m += 1
+            if m == 13:
+                m = 1
+                y += 1
+
+        def sqlite_month(col):
+            return sa_func.strftime("%Y-%m", col)
+
+        def pg_month(col):
+            return sa_func.to_char(col, "YYYY-MM")
+
+        try:
+            dialect_name = self.db.get_bind().dialect.name
+        except Exception:
+            dialect_name = "sqlite"
+        is_pg = dialect_name == "postgresql"
+        month_expr = (pg_month if is_pg else sqlite_month)(FarmerProfile.created_at)
+        farmers_rows = await self.db.execute(
+            select(month_expr.label("m"), sa_func.count(FarmerProfile.id)).group_by("m")
+        )
+        farmer_counts = {row[0]: row[1] for row in farmers_rows.all()}
+
+        loan_month = (pg_month if is_pg else sqlite_month)(LoanApplication.submitted_at)
+        loans_rows = await self.db.execute(
+            select(
+                loan_month.label("m"),
+                LoanApplication.status,
+                sa_func.count(LoanApplication.id),
+                sa_func.coalesce(sa_func.sum(LoanApplication.requested_amount), 0),
+                sa_func.coalesce(sa_func.sum(LoanApplication.repayment_amount), 0),
+            ).group_by("m", LoanApplication.status)
+        )
+        loan_data: dict[str, dict] = {}
+        for m, status, count, amount, repayment in loans_rows.all():
+            entry = loan_data.setdefault(m, {
+                "loans_submitted": 0,
+                "loans_approved": 0,
+                "loans_rejected": 0,
+                "loans_disbursed": 0,
+                "amount_requested": 0.0,
+                "repayment_total": 0.0,
+            })
+            entry["loans_submitted"] += count
+            key = f"loans_{status.value.lower()}"
+            if key in entry:
+                entry[key] += count
+            entry["amount_requested"] += float(amount or 0)
+            if status in (LoanStatus.APPROVED, LoanStatus.DISBURSED):
+                entry["repayment_total"] += float(repayment or 0)
+
+        report = []
+        for y, m in buckets:
+            key = f"{y:04d}-{m:02d}"
+            loans = loan_data.get(key, {})
+            report.append({
+                "month": key,
+                "farmers_registered": farmer_counts.get(key, 0),
+                "loans_submitted": loans.get("loans_submitted", 0),
+                "loans_approved": loans.get("loans_approved", 0),
+                "loans_rejected": loans.get("loans_rejected", 0),
+                "loans_disbursed": loans.get("loans_disbursed", 0),
+                "amount_requested": round(loans.get("amount_requested", 0.0), 2),
+                "repayment_total": round(loans.get("repayment_total", 0.0), 2),
+            })
+        return report
+
     async def loan_report(self) -> dict:
         total_q = await self.db.execute(sa_func.count(LoanApplication.id).select())
         total = total_q.scalar() or 0

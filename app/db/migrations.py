@@ -59,3 +59,17 @@ def run_startup_migrations(sync_conn) -> None:
     for table, column, stmt in BACKFILLS:
         if _column_exists(sync_conn, table, column):
             sync_conn.execute(text(stmt))
+
+    # Farmer accounts no longer require an email — relax NOT NULL on users.email.
+    try:
+        from alembic.migration import MigrationContext
+        from alembic.operations import Operations
+        import sqlalchemy as sa
+
+        ctx = MigrationContext.configure(sync_conn)
+        ops = Operations(ctx)
+        with ops.batch_alter_table("users", schema=None) as batch_op:
+            batch_op.alter_column("email", existing_type=sa.String(255), nullable=True)
+        logger.info("Startup migration applied: users.email is now nullable")
+    except Exception as exc:
+        logger.debug("users.email nullable migration skipped: %s", exc)

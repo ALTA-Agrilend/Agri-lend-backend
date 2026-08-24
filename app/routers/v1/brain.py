@@ -39,6 +39,58 @@ async def trigger_all_scores(
     return {"detail": f"Scores calculated for {len(records)} farmers"}
 
 
+@router.get("/evaluation/{farmer_id}",
+            summary="Latest credit evaluation payload",
+            description="Returns the farmer's most recent credit evaluation in the canonical scoring-service "
+                        "response shape (credit_evaluation, categorical_points_breakdown, raw_extracted_sub_scores).",
+            responses={404: {"description": "No credit score found"}})
+async def credit_evaluation(
+    farmer_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _: Annotated[dict, Depends(get_current_user)],
+):
+    import json as _json
+    from app.models.farmer import FarmParcel
+    from sqlalchemy import select
+
+    credit = CreditService(db)
+    score = await credit.get_latest_score(farmer_id)
+    if not score:
+        raise HTTPException(status_code=404, detail="No credit score found")
+
+    parcel_result = await db.execute(
+        select(FarmParcel).where(FarmParcel.farmer_id == farmer_id).limit(1)
+    )
+    parcel = parcel_result.scalar_one_or_none()
+
+    def _load(raw):
+        if not raw:
+            return {}
+        try:
+            return _json.loads(raw)
+        except (ValueError, TypeError):
+            return {}
+
+    is_amanuel = (score.model_version or "").startswith("amanuel")
+    return {
+        "response_id": str(score.id),
+        "farmer_id": farmer_id,
+        "crop_type": parcel.primary_crop if parcel else "",
+        "credit_evaluation": {
+            "target_crop": parcel.primary_crop if parcel else "",
+            "final_credit_score": score.score_value,
+            "score_range": "300-850" if is_amanuel else "300-1000",
+            "raw_geospatial_score_out_of_100": float(score.geospatial_score or 0),
+            "confidence_rating": {
+                "confidence_percentage": round(float(score.confidence_rating or 0) * 100, 2),
+                "tier": "HIGH" if (score.confidence_rating or 0) >= 0.75 else ("MEDIUM" if (score.confidence_rating or 0) >= 0.5 else "LOW"),
+            },
+        },
+        "categorical_points_breakdown": _load(score.categorical_breakdown),
+        "raw_extracted_sub_scores": _load(score.raw_sub_scores),
+    }
+
+
 @router.get("/risk-tier/{farmer_id}",
             summary="Get risk tier detail",
             description="Returns risk tier classification, contributing factors, and recommended loan range for a farmer. Auto-refreshes score if stored data is older than the expiry hours specified in the configuration.",

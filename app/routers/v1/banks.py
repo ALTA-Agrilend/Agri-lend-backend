@@ -1,14 +1,26 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func as sa_func
+from sqlalchemy import select, func as sa_func, case
 from decimal import Decimal
 from typing import Optional
+from uuid import UUID
+
+
+def _to_uuid(val) -> UUID | None:
+    if val is None or isinstance(val, UUID):
+        return val
+    try:
+        return UUID(str(val))
+    except (ValueError, TypeError):
+        return None
+
 from app.db.session import get_db
 from app.schemas.bank import BankPartnerCreate, BankPartnerResponse, BankSettingsUpdate
 from app.schemas import PaginatedResponse
 from app.core.dependencies import get_current_user, require_roles
 from app.models.bank import BankPartner
 from app.models.auth import User, Role
+from app.models.loan import LoanApplication, LoanStatus
 from app.services.auth import AuthService
 
 router = APIRouter(prefix="/banks", tags=["Banks"])
@@ -79,6 +91,71 @@ async def list_banks(
     }
 
 
+@router.get("/{bank_id}/detail",
+            summary="Bank partner detail",
+            description="Returns full institution profile, its analyst login accounts, and loan book statistics. Requires Platform Admin.",
+            responses={404: {"description": "Bank not found"}})
+async def get_bank_detail(
+    bank_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(require_roles("Platform Admin")),
+):
+    result = await db.execute(select(BankPartner).where(BankPartner.id == _to_uuid(bank_id)))
+    bank = result.scalar_one_or_none()
+    if not bank:
+        raise HTTPException(status_code=404, detail="Bank not found")
+
+    analysts_result = await db.execute(
+        select(User).where(User.bank_id == bank.id).order_by(User.created_at.asc())
+    )
+    analysts = [
+        {
+            "id": str(u.id),
+            "email": u.email,
+            "full_name": u.full_name,
+            "is_active": u.is_active,
+            "created_at": u.created_at,
+        }
+        for u in analysts_result.scalars().all()
+    ]
+
+    from sqlalchemy import func as sa_func
+    loan_stats_q = await db.execute(
+        select(
+            sa_func.count(LoanApplication.id),
+            sa_func.coalesce(sa_func.sum(LoanApplication.requested_amount), 0),
+            sa_func.coalesce(sa_func.sum(
+                case((LoanApplication.status.in_([LoanStatus.APPROVED, LoanStatus.DISBURSED]), LoanApplication.repayment_amount))), 0),
+        ).where(LoanApplication.bank_id == bank.id)
+    )
+    loan_count, amount_total, repayment_total = loan_stats_q.one()
+
+    approved_q = await db.execute(
+        select(sa_func.count(LoanApplication.id)).where(
+            LoanApplication.bank_id == bank.id,
+            LoanApplication.status.in_([LoanStatus.APPROVED, LoanStatus.DISBURSED]),
+        )
+    )
+
+    return {
+        "bank": {
+            "id": str(bank.id),
+            "bank_name": bank.bank_name,
+            "interest_rate": float(bank.interest_rate) if bank.interest_rate is not None else None,
+            "subscription_tier": bank.subscription_tier,
+            "is_active": bank.is_active,
+            "onboarding_date": bank.onboarding_date,
+        },
+        "analysts": analysts,
+        "loan_stats": {
+            "total_loans": loan_count or 0,
+            "approved_loans": approved_q.scalar() or 0,
+            "total_requested": float(amount_total or 0),
+            "repayment_total": float(repayment_total or 0),
+        },
+    }
+
+
 @router.get("/{bank_id}", response_model=BankPartnerResponse,
             summary="Get bank details",
             description="Returns details for a specific bank partner.",
@@ -88,7 +165,7 @@ async def get_bank(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Bank Administrator", "Platform Admin")),
 ):
-    result = await db.execute(select(BankPartner).where(BankPartner.id == bank_id))
+    result = await db.execute(select(BankPartner).where(BankPartner.id == _to_uuid(bank_id)))
     bank = result.scalar_one_or_none()
     if not bank:
         raise HTTPException(status_code=404, detail="Bank not found")
@@ -107,7 +184,7 @@ async def update_bank_settings(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_roles("Bank Administrator", "Platform Admin")),
 ):
-    result = await db.execute(select(BankPartner).where(BankPartner.id == bank_id))
+    result = await db.execute(select(BankPartner).where(BankPartner.id == _to_uuid(bank_id)))
     bank = result.scalar_one_or_none()
     if not bank:
         raise HTTPException(status_code=404, detail="Bank not found")

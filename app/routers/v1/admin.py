@@ -212,6 +212,20 @@ async def activate_bank(
 
 # ─── Reports ────────────────────────────────────────────────────────
 
+@router.get("/reports/monthly",
+            summary="Monthly activity report",
+            description="Per-calendar-month aggregates of farmer registrations and loan activity "
+                        "(submitted, approved, rejected, disbursed counts, requested amounts, repayment totals). "
+                        "Requires Platform Admin.")
+async def monthly_report(
+    months: int = Query(12, ge=1, le=24, description="Number of trailing months to include"),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(require_roles("Platform Admin")),
+):
+    service = AdminService(db)
+    return await service.monthly_report(months)
+
+
 @router.get("/reports/farmers", response_model=FarmerOnboardingReport,
             summary="Farmer onboarding report",
             description="Returns counts of registered, consented, land-verified, and mobile-money-linked farmers.")

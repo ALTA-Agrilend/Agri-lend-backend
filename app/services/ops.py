@@ -19,6 +19,10 @@ DEFAULT_SETTINGS = {
     "site_name": "AgriLend Technical Command",
     "environment": "production",
     "currency": "USD",
+    "min_credit_score_approval": "600",
+    "max_loan_amount": "50000",
+    "default_loan_term_months": "12",
+    "maintenance_mode": "false",
 }
 
 
@@ -289,10 +293,10 @@ class OpsService:
         recovery_rate = round((approved_total / total * 100), 1) if total > 0 else 0.0
 
         holdings = [
-            {"name": "Approved Loans", "value": f"${round(approved_total / 1000, 1)}K", "change": "+8.4%", "tone": "text-emerald-600", "bg": "bg-emerald-50"},
-            {"name": "Pending Queue", "value": f"${round(pending_total / 1000, 1)}K", "change": "+2.1%", "tone": "text-amber-600", "bg": "bg-amber-50"},
-            {"name": "At Risk Exposure", "value": f"${round(at_risk_total / 1000, 1)}K", "change": "-3.6%", "tone": "text-red-600", "bg": "bg-red-50"},
-            {"name": "Recovery Rate", "value": f"{recovery_rate}%", "change": "+1.2%", "tone": "text-emerald-600", "bg": "bg-emerald-50"},
+            {"name": "Approved Loans", "value": f"${round(approved_total / 1000, 1)}K", "change": "", "tone": "text-emerald-600", "bg": "bg-emerald-50"},
+            {"name": "Pending Queue", "value": f"${round(pending_total / 1000, 1)}K", "change": "", "tone": "text-amber-600", "bg": "bg-amber-50"},
+            {"name": "At Risk Exposure", "value": f"${round(at_risk_total / 1000, 1)}K", "change": "", "tone": "text-red-600", "bg": "bg-red-50"},
+            {"name": "Recovery Rate", "value": f"{recovery_rate}%", "change": "", "tone": "text-emerald-600", "bg": "bg-emerald-50"},
         ]
 
         total_crop = sum(crop_amounts.values()) or 1.0
@@ -306,28 +310,16 @@ class OpsService:
             for i, (crop, amt) in enumerate(sorted(crop_amounts.items(), key=lambda x: -x[1]))
         ]
         if not allocations:
-            allocations = [
-                {"label": "Maize", "pct": 32, "color": "bg-[#1A532E]"},
-                {"label": "Dairy", "pct": 24, "color": "bg-emerald-600"},
-                {"label": "Coffee", "pct": 18, "color": "bg-amber-500"},
-                {"label": "Cotton", "pct": 14, "color": "bg-orange-500"},
-                {"label": "Other", "pct": 12, "color": "bg-gray-300"},
-            ]
+            allocations = []
 
         segments = []
         for region, amt in sorted(region_amounts.items(), key=lambda x: -x[1])[:6]:
             scores = region_scores[region]
-            avg = sum(scores) / len(scores) if scores else 700
-            status = "Critical" if avg < 550 else ("High" if avg < 650 else ("Moderate" if avg < 720 else "Low"))
-            trend = f"+{round(((avg - 600) / 600) * 100)}%"
-            segments.append({"name": region, "exposure": amt, "score": round(avg), "trend": trend, "status": status})
+            avg = sum(scores) / len(scores) if scores else 0
+            status = "Critical" if avg < 550 else ("High" if avg < 650 else ("Moderate" if avg < 720 else ("Low" if avg > 0 else "")))
+            segments.append({"name": region, "exposure": amt, "score": round(avg), "trend": "", "status": status})
 
-        activity = [
-            "Portfolio rebalanced for low-risk crop clusters.",
-            f"{len(segments)} regional segments under active monitoring.",
-            "Yield-adjusted repayment model updated for the quarter.",
-            "Recovery projections improved after recent collections.",
-        ]
+        activity = []
 
         return {
             "approved_total": round(approved_total, 2),

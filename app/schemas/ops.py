@@ -67,6 +67,10 @@ class SystemSettingsUpdate(BaseModel):
     site_name: Optional[str] = None
     environment: Optional[str] = None
     currency: Optional[str] = None
+    min_credit_score_approval: Optional[str] = None
+    max_loan_amount: Optional[str] = None
+    default_loan_term_months: Optional[str] = None
+    maintenance_mode: Optional[str] = None
 
 
 class SystemSettingsResponse(BaseModel):
