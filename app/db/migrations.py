@@ -1,3 +1,4 @@
+import sqlalchemy as sa
 from sqlalchemy import text
 
 from app.core.logging import logger
@@ -37,39 +38,56 @@ def _column_exists(sync_conn, table: str, column: str) -> bool:
     return (res.scalar() or 0) > 0
 
 
+def _run_isolated(sync_conn, fn, description: str) -> bool:
+    """Run a migration step inside a SAVEPOINT so a failure (e.g. duplicate
+    column on Postgres) rolls back cleanly instead of poisoning the whole
+    startup transaction with InFailedSQLTransactionError."""
+    try:
+        with sync_conn.begin_nested():
+            fn()
+        logger.info("Startup migration applied: %s", description)
+        return True
+    except Exception as exc:
+        logger.debug("Startup migration skipped (%s): %s", description, exc)
+        return False
+
+
 def run_startup_migrations(sync_conn) -> None:
     is_postgres = sync_conn.dialect.name == "postgresql"
+
     for table, column, pg_type, sqlite_type in TABLE_COLUMNS:
-        stmt = text(f"ALTER TABLE {table} ADD COLUMN {column} {pg_type if is_postgres else sqlite_type}")
-        try:
-            sync_conn.execute(stmt)
-            logger.info("Startup migration applied: %s", stmt)
-        except Exception as exc:  # column already exists
-            logger.debug("Startup migration skipped (%s.%s): %s", table, column, exc)
+        if _column_exists(sync_conn, table, column):
+            continue
+        col_type = pg_type if is_postgres else sqlite_type
+        _run_isolated(
+            sync_conn,
+            lambda t=table, c=column, ct=col_type: sync_conn.execute(
+                text(f"ALTER TABLE {t} ADD COLUMN {c} {ct}")
+            ),
+            f"add {table}.{column}",
+        )
 
     for table, column in DROP_COLUMNS:
         if not _column_exists(sync_conn, table, column):
             continue
-        try:
-            sync_conn.execute(text(f"ALTER TABLE {table} DROP COLUMN {column}"))
-            logger.info("Startup migration applied: dropped %s.%s", table, column)
-        except Exception as exc:  # SQLite pre-3.35 or permission issue
-            logger.warning("Could not drop %s.%s (legacy column kept): %s", table, column, exc)
+        _run_isolated(
+            sync_conn,
+            lambda t=table, c=column: sync_conn.execute(text(f"ALTER TABLE {t} DROP COLUMN {c}")),
+            f"drop {table}.{column}",
+        )
 
     for table, column, stmt in BACKFILLS:
         if _column_exists(sync_conn, table, column):
-            sync_conn.execute(text(stmt))
+            _run_isolated(sync_conn, lambda s=stmt: sync_conn.execute(text(s)), stmt[:60])
 
     # Farmer accounts no longer require an email — relax NOT NULL on users.email.
-    try:
+    def _relax_email_not_null():
         from alembic.migration import MigrationContext
         from alembic.operations import Operations
-        import sqlalchemy as sa
 
         ctx = MigrationContext.configure(sync_conn)
         ops = Operations(ctx)
         with ops.batch_alter_table("users", schema=None) as batch_op:
             batch_op.alter_column("email", existing_type=sa.String(255), nullable=True)
-        logger.info("Startup migration applied: users.email is now nullable")
-    except Exception as exc:
-        logger.debug("users.email nullable migration skipped: %s", exc)
+
+    _run_isolated(sync_conn, _relax_email_not_null, "users.email nullable")
