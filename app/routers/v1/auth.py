@@ -35,7 +35,11 @@ async def register(request: Request, data: UserCreate, db: AsyncSession = Depend
 @limiter.limit(lambda: f"{settings.rate_limit_auth_per_minute}/minute")
 async def login(request: Request, data: LoginRequest, db: AsyncSession = Depends(get_db)):
     service = AuthService(db)
-    result = await service.authenticate(data.email, data.password)
+    result = await service.authenticate(
+        data.email,
+        data.password,
+        phone_number=data.phone_number,
+    )
     if not result:
         raise HTTPException(status_code=401, detail="Invalid credentials or account deactivated")
     return TokenResponse(access_token=result[1], refresh_token=result[2])

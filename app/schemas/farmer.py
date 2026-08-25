@@ -7,7 +7,6 @@ import re
 
 
 class FarmerRegistrationHub(BaseModel):
-    email: Optional[str] = Field(None, max_length=255)
     password: str = Field(..., min_length=6)
     full_name: str = Field(..., min_length=1, max_length=255)
     national_id: str = Field(..., max_length=100)
@@ -18,16 +17,6 @@ class FarmerRegistrationHub(BaseModel):
     farm_size_hectares: Optional[Decimal] = None
     region: Optional[str] = Field(None, max_length=100)
     locale: str = Field("en", max_length=10)
-
-    @field_validator("email")
-    @classmethod
-    def validate_email(cls, v):
-        if v is None:
-            return None
-        v = v.strip().lower()
-        if not re.match(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", v):
-            raise ValueError("Invalid email format")
-        return v
 
     @field_validator("phone_number")
     @classmethod

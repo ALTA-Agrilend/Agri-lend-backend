@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
@@ -16,8 +16,15 @@ class RefreshRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: str = Field(..., max_length=255)
+    email: Optional[str] = Field(None, max_length=255)
+    phone_number: Optional[str] = Field(None, max_length=20)
     password: str = Field(..., min_length=6)
+
+    @model_validator(mode="after")
+    def _require_identifier(self):
+        if not self.email and not self.phone_number:
+            raise ValueError("Provide either email or phone_number")
+        return self
 
 
 class UserCreate(BaseModel):

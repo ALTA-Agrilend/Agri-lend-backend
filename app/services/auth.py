@@ -48,8 +48,15 @@ class AuthService:
         await self.db.flush()
         return user
 
-    async def authenticate(self, email: str, password: str) -> tuple[User, str, str] | None:
-        result = await self.db.execute(select(User).options(joinedload(User.role)).where(User.email == email))
+    async def authenticate(self, email: str | None, password: str, phone_number: str | None = None) -> tuple[User, str, str] | None:
+        stmt = select(User).options(joinedload(User.role))
+        if email:
+            stmt = stmt.where(User.email == (email or "").lower().strip())
+        elif phone_number:
+            stmt = stmt.where(User.phone_number == phone_number.strip())
+        else:
+            return None
+        result = await self.db.execute(stmt)
         user = result.scalar_one_or_none()
         if not user or not verify_password(password, user.hashed_password):
             return None

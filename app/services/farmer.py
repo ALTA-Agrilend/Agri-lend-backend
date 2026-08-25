@@ -27,7 +27,7 @@ class FarmerService:
         if not role:
             raise ValueError("Farmer role not found")
         user = User(
-            email=data.email,
+            email=getattr(data, "email", None),
             phone_number=data.phone_number,
             hashed_password=hash_password(data.password),
             full_name=data.full_name,
