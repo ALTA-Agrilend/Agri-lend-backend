@@ -6,7 +6,7 @@ from app.schemas.farmer import (
     FarmerRegistrationHub, FarmerProfileResponse, FarmerListResponse, FarmParcelCreate, FarmParcelResponse,
     ConsentRequest, FarmStatusResponse,
 )
-from app.schemas.credit import CreditScoreResponse, CreditScoreHistoryResponse, ExplainabilityResponse
+from app.schemas.credit import CreditScoreHistoryResponse, ExplainabilityResponse
 from app.schemas import PaginatedResponse
 from app.services.farmer import FarmerService
 from app.services.credit import CreditService
@@ -153,16 +153,19 @@ async def get_parcels(farmer_id: str, db: AsyncSession = Depends(get_db), _: dic
     return await service.get_parcels(farmer_id)
 
 
-@router.get("/{farmer_id}/credit-score", response_model=CreditScoreResponse,
-            summary="Get farmer's credit score",
-            description="Returns the current credit score. Auto-refreshes from Amanuel if stored score is older than 24 hours.",
+@router.get("/{farmer_id}/credit-score",
+            summary="Get farmer's full credit evaluation",
+            description="Returns the complete credit evaluation exactly as received from the credit-score "
+                        "calculator: final score, score range, geospatial sub-score, confidence rating, "
+                        "categorical points breakdown, and raw extracted sub-scores. "
+                        "Auto-refreshes from the scoring service if stored data is older than 24 hours.",
             responses={404: {"description": "No credit score found"}})
 async def get_credit_score(farmer_id: str, db: AsyncSession = Depends(get_db), _: dict = Depends(get_current_user)):
     service = CreditService(db)
-    score = await service.get_valid_score(farmer_id)
-    if not score:
+    payload = await service.get_evaluation(farmer_id)
+    if not payload:
         raise HTTPException(status_code=404, detail="No credit score found")
-    return score
+    return payload
 
 
 @router.get("/{farmer_id}/credit-history",

@@ -11,6 +11,56 @@ class CreditService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
+    @staticmethod
+    def build_evaluation_payload(score, farmer_id: str, crop_type: str = "") -> dict:
+        """Canonical credit-evaluation contract — mirrors the scoring service response:
+        {response_id, farmer_id, crop_type, credit_evaluation, categorical_points_breakdown,
+         raw_extracted_sub_scores}."""
+        import json as _json
+
+        def _load(raw):
+            if not raw:
+                return {}
+            try:
+                return _json.loads(raw)
+            except (ValueError, TypeError):
+                return {}
+
+        is_amanuel = (score.model_version or "").startswith("amanuel")
+        conf = float(score.confidence_rating or 0)
+        return {
+            "response_id": str(score.id),
+            "farmer_id": farmer_id,
+            "crop_type": crop_type,
+            "credit_evaluation": {
+                "target_crop": crop_type,
+                "final_credit_score": score.score_value,
+                "score_range": "300-850" if is_amanuel else "300-1000",
+                "raw_geospatial_score_out_of_100": round(float(score.geospatial_score or 0), 2),
+                "confidence_rating": {
+                    "confidence_percentage": round(conf * 100, 2),
+                    "tier": "HIGH" if conf >= 0.75 else ("MEDIUM" if conf >= 0.5 else "LOW"),
+                },
+            },
+            "categorical_points_breakdown": _load(score.categorical_breakdown),
+            "raw_extracted_sub_scores": _load(score.raw_sub_scores),
+        }
+
+    async def get_evaluation(self, farmer_id: str) -> dict | None:
+        """Latest stored evaluation in canonical payload form."""
+        from sqlalchemy import select
+        from app.models.farmer import FarmParcel
+
+        score = await self.get_latest_score(farmer_id)
+        if not score:
+            return None
+        parcel_result = await self.db.execute(
+            select(FarmParcel).where(FarmParcel.farmer_id == farmer_id).limit(1)
+        )
+        parcel = parcel_result.scalar_one_or_none()
+        crop_type = parcel.primary_crop if parcel else ""
+        return self.build_evaluation_payload(score, farmer_id, crop_type)
+
     async def get_latest_score(self, farmer_id: str) -> CreditScoreRecord | None:
         result = await self.db.execute(
             select(CreditScoreRecord)
