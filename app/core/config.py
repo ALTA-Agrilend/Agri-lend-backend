@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 7
 
-    cors_origins: str = '["http://localhost:5173","http://localhost:3000"]'
+    cors_origins: str = '["http://localhost:5173","http://localhost:3000","https://agrilend-ten.vercel.app"]'
 
     eyosiyas_service_url: str = "http://geospatial-service:8001"
     amanuel_service_url: str = "https://agri-lend-agricultural-credit-calculator.onrender.com"
