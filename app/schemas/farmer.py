@@ -4,6 +4,7 @@ from uuid import UUID
 from datetime import datetime
 from decimal import Decimal
 import re
+from app.core.phone import normalize_phone
 
 
 class FarmerRegistrationHub(BaseModel):
@@ -21,6 +22,7 @@ class FarmerRegistrationHub(BaseModel):
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, v: str) -> str:
+        v = normalize_phone(v) or v
         if not re.match(r"^\+?[0-9]{7,15}$", v):
             raise ValueError("Invalid phone number format")
         return v

@@ -9,12 +9,12 @@ class QueueItemResponse(BaseModel):
     farmer_id: UUID
     full_name: str
     phone_number: str
-    email: str
-    national_id: str
-    region: str
-    primary_crop: str
-    farm_size: Optional[float]
-    gps_coordinates: Optional[str]
+    email: Optional[str] = None
+    national_id: Optional[str] = None
+    region: Optional[str] = None
+    primary_crop: Optional[str] = None
+    farm_size: Optional[float] = None
+    gps_coordinates: Optional[str] = None
     score: Optional[int]
     risk_tier: Optional[str]
     status: str

@@ -61,6 +61,18 @@ class FarmerService:
             self.db.add(parcel)
             await self.db.flush()
 
+        from app.models.ops import FarmerVerificationQueue
+
+        self.db.add(
+            FarmerVerificationQueue(
+                farmer_id=profile.id,
+                status="APPROVED" if registered_by_bank_id else "PENDING",
+                submitted_via="Bank Analyst Portal" if registered_by_bank_id else "AgriLend Mobile App (v1.2)",
+                submitted_at=datetime.now(timezone.utc),
+            )
+        )
+        await self.db.flush()
+
         return profile, parcel
 
     async def list_farmers(self, page: int = 1, page_size: int = 20, region: Optional[str] = None) -> dict:

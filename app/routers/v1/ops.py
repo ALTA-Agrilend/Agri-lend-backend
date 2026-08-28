@@ -209,19 +209,33 @@ async def list_notifications(
 
 
 @router.post("/notifications/{notification_id}/read",
-             summary="Mark notification read",
-             description="Marks a single notification as read.",
+             summary="Mark notification read or unread",
+             description="Marks a single notification as read (default) or unread via ?read=false.",
              responses={404: {"description": "Notification not found"}})
 async def mark_notification_read(
     notification_id: str,
+    read: bool = Query(True, description="True to mark read, false to mark unread"),
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ):
     service = OpsService(db)
-    notification = await service.mark_notification_read(notification_id)
+    notification = await service.mark_notification_read(notification_id, read=read)
     if not notification:
         raise HTTPException(status_code=404, detail="Notification not found")
-    return {"detail": "Notification marked as read"}
+    return {"detail": "Notification marked as read" if read else "Notification marked as unread"}
+
+
+@router.post("/notifications/read-all",
+             summary="Mark all notifications read",
+             description="Marks every notification in the channel (bank or admin) as read.")
+async def mark_all_notifications_read(
+    role: str = Query("bank", description="Notification channel: bank or admin"),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+):
+    service = OpsService(db)
+    count = await service.mark_all_notifications_read(role)
+    return {"detail": f"{count} notification(s) marked as read"}
 
 
 # ─── Risk Simulation ─────────────────────────────────────────────

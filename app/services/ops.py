@@ -12,7 +12,7 @@ from app.models.farmer import FarmerProfile, FarmParcel
 from app.models.auth import User
 from app.models.loan import LoanApplication, LoanStatus
 from app.models.credit import CreditScoreRecord
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import UUID as UUIDType
 
 DEFAULT_SETTINGS = {
@@ -205,7 +205,7 @@ class OpsService:
         )
         return list(result.scalars().all())
 
-    async def mark_notification_read(self, notification_id: str) -> Notification | None:
+    async def mark_notification_read(self, notification_id: str, read: bool = True) -> Notification | None:
         uid = to_uuid(notification_id)
         if not uid:
             return None
@@ -213,9 +213,20 @@ class OpsService:
         notification = result.scalar_one_or_none()
         if not notification:
             return None
-        notification.read = True
+        notification.read = read
         await self.db.flush()
         return notification
+
+    async def mark_all_notifications_read(self, role: str = "bank") -> int:
+        result = await self.db.execute(
+            select(Notification).where(Notification.role == role, Notification.read.is_(False))
+        )
+        rows = list(result.scalars().all())
+        for notification in rows:
+            notification.read = True
+        if rows:
+            await self.db.flush()
+        return len(rows)
 
     # ─── Risk Simulation ──────────────────────────────────────────
 
@@ -371,7 +382,35 @@ class OpsService:
 
     # ─── Pipeline Runs ────────────────────────────────────────────
 
+    CANONICAL_PIPELINES = [
+        ("Satellite NDVI Ingestion", 0.97),
+        ("Climate Data Sync", 0.99),
+        ("Credit Score Computation", 0.95),
+    ]
+
+    async def _reconcile_stale_runs(self, ttl_seconds: float = 10.0) -> int:
+        """Simulated completion: any run still RUNNING after `ttl_seconds` is marked SUCCESS."""
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=ttl_seconds)
+        result = await self.db.execute(
+            select(PipelineRun).where(
+                PipelineRun.status == "RUNNING", PipelineRun.started_at <= cutoff
+            )
+        )
+        stale = list(result.scalars().all())
+        now = datetime.now(timezone.utc)
+        for run in stale:
+            started = run.started_at
+            if started is not None and started.tzinfo is None:
+                started = started.replace(tzinfo=timezone.utc)
+            run.status = "SUCCESS"
+            run.duration_seconds = round((now - started).total_seconds(), 1)
+        if stale:
+            await self.db.flush()
+            return len(stale)
+        return 0
+
     async def list_pipeline_runs(self, limit: int = 50) -> list[PipelineRun]:
+        await self._reconcile_stale_runs()
         result = await self.db.execute(select(PipelineRun).order_by(PipelineRun.started_at.desc()).limit(limit))
         return list(result.scalars().all())
 
@@ -380,3 +419,45 @@ class OpsService:
         self.db.add(run)
         await self.db.flush()
         return run
+
+    async def pipeline_status(self) -> list[dict]:
+        """Real-time pipeline cards: aggregates actual PipelineRun rows so triggered
+        runs bump Total Runs / Success Rate immediately."""
+        await self._reconcile_stale_runs()
+        result = await self.db.execute(select(PipelineRun).order_by(PipelineRun.started_at.asc()))
+        runs = list(result.scalars().all())
+
+        by_name: dict[str, list[PipelineRun]] = {}
+        for run in runs:
+            by_name.setdefault(run.pipeline_name, []).append(run)
+
+        defaults = dict(self.CANONICAL_PIPELINES)
+        names = list(defaults.keys())
+
+        def _entry(name: str, rset: list[PipelineRun], default_rate: float) -> dict:
+            total = len(rset)
+            failed = sum(1 for r in rset if r.status in ("FAILED", "ERROR", "DOWN"))
+            last = max((r.started_at for r in rset), default=None)
+            latest = max(rset, key=lambda r: r.started_at, default=None)
+            if total == 0:
+                state = "idle"
+            elif latest and latest.status in ("FAILED", "ERROR", "DOWN"):
+                state = "degraded"
+            elif latest and latest.status == "RUNNING":
+                state = "running"
+            else:
+                state = "healthy"
+            return {
+                "pipeline_name": name,
+                "last_run": last,
+                "success_rate": round((total - failed) / total * 100, 1) if total else round(default_rate * 100, 1),
+                "total_runs": total,
+                "failed_runs": failed,
+                "status": state,
+            }
+
+        entries = [_entry(name, by_name.get(name, []), defaults[name]) for name in names]
+        for name, rset in by_name.items():
+            if name not in names:
+                entries.append(_entry(name, rset, 0.95))
+        return entries

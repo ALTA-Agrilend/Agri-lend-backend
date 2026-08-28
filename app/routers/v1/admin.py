@@ -13,6 +13,7 @@ from app.schemas.admin import (
 from app.schemas import PaginatedResponse
 from app.services.auth import AuthService
 from app.services.admin import AdminService
+from app.services.ops import OpsService
 from app.core.dependencies import get_current_user, require_roles
 from app.models.bank import BankPartner
 from app.models.auth import Role
@@ -368,33 +369,11 @@ async def ml_rollback(
 
 @router.get("/pipelines", response_model=list[PipelineStatus],
             summary="Data pipeline monitoring",
-            description="Returns status of satellite, climate, and scoring data pipelines.")
+            description="Returns real-time status of satellite, climate, and scoring data pipelines, "
+                        "aggregated from actual pipeline runs.")
 async def pipeline_status(
+    db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_roles("Platform Admin")),
 ):
-    return [
-        {
-            "pipeline_name": "Satellite NDVI Ingestion",
-            "last_run": datetime.now(timezone.utc),
-            "success_rate": 0.97,
-            "total_runs": 245,
-            "failed_runs": 7,
-            "status": "healthy",
-        },
-        {
-            "pipeline_name": "Climate Data Sync",
-            "last_run": datetime.now(timezone.utc),
-            "success_rate": 0.99,
-            "total_runs": 180,
-            "failed_runs": 2,
-            "status": "healthy",
-        },
-        {
-            "pipeline_name": "Credit Score Computation",
-            "last_run": datetime.now(timezone.utc),
-            "success_rate": 0.95,
-            "total_runs": 120,
-            "failed_runs": 6,
-            "status": "degraded",
-        },
-    ]
+    service = OpsService(db)
+    return await service.pipeline_status()

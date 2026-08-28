@@ -3,6 +3,7 @@ from typing import Optional
 from uuid import UUID
 from datetime import datetime
 import re
+from app.core.phone import normalize_phone
 
 
 class TokenResponse(BaseModel):
@@ -46,8 +47,10 @@ class UserCreate(BaseModel):
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^\+?[0-9]{7,15}$", v):
-            raise ValueError("Invalid phone number format")
+        if v:
+            v = normalize_phone(v) or v
+            if not re.match(r"^\+?[0-9]{7,15}$", v):
+                raise ValueError("Invalid phone number format")
         return v
 
 
@@ -59,8 +62,10 @@ class UserUpdate(BaseModel):
     @field_validator("phone_number")
     @classmethod
     def validate_phone(cls, v: Optional[str]) -> Optional[str]:
-        if v and not re.match(r"^\+?[0-9]{7,15}$", v):
-            raise ValueError("Invalid phone number format")
+        if v:
+            v = normalize_phone(v) or v
+            if not re.match(r"^\+?[0-9]{7,15}$", v):
+                raise ValueError("Invalid phone number format")
         return v
 
 

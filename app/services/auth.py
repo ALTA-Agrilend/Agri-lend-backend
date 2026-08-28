@@ -6,6 +6,7 @@ from app.models.auth import User, Role
 from app.models.audit import AuditLog
 from app.schemas.auth import UserCreate, UserUpdate
 from app.core.security import hash_password, verify_password, create_access_token, create_refresh_token, decode_token
+from app.core.phone import normalize_phone
 from uuid import UUID
 from datetime import datetime, timezone
 
@@ -49,15 +50,23 @@ class AuthService:
         return user
 
     async def authenticate(self, email: str | None, password: str, phone_number: str | None = None) -> tuple[User, str, str] | None:
-        stmt = select(User).options(joinedload(User.role))
+        user = None
         if email:
-            stmt = stmt.where(User.email == (email or "").lower().strip())
+            stmt = select(User).options(joinedload(User.role)).where(User.email == (email or "").lower().strip())
+            result = await self.db.execute(stmt)
+            user = result.scalar_one_or_none()
         elif phone_number:
-            stmt = stmt.where(User.phone_number == phone_number.strip())
+            canonical = normalize_phone(phone_number)
+            if canonical:
+                candidates = await self.db.execute(
+                    select(User).options(joinedload(User.role)).where(User.phone_number.isnot(None))
+                )
+                user = next(
+                    (u for u in candidates.scalars().all() if normalize_phone(u.phone_number) == canonical),
+                    None,
+                )
         else:
             return None
-        result = await self.db.execute(stmt)
-        user = result.scalar_one_or_none()
         if not user or not verify_password(password, user.hashed_password):
             return None
         if not user.is_active:
