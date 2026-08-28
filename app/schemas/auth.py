@@ -71,7 +71,7 @@ class UserUpdate(BaseModel):
 
 class UserResponse(BaseModel):
     id: UUID
-    email: str
+    email: Optional[str] = None
     full_name: str
     role_id: UUID
     role_name: Optional[str] = None
@@ -87,7 +87,7 @@ class UserResponse(BaseModel):
 
 class UserAdminResponse(BaseModel):
     id: UUID
-    email: str
+    email: Optional[str] = None
     full_name: str
     role_name: str
     is_active: bool

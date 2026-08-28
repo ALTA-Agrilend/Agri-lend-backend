@@ -59,3 +59,35 @@ class TestAuthService:
         service = AuthService(session)
         result = await service.authenticate("farmer@test.com", "password123")
         assert result is None
+
+    async def test_authenticate_by_phone_normalized(self, session: AsyncSession, farmer_role):
+        from app.schemas.auth import UserCreate
+        service = AuthService(session)
+        data = UserCreate(
+            email="phonefarmer@test.com",
+            password="SecurePass1!",
+            full_name="Phone Farmer",
+            role_name="Farmer",
+            phone_number="+251 91 222 3333",
+        )
+        user = await service.register_user(data)
+        assert user.phone_number == "+251912223333"
+        for fmt in ("+251912223333", "251912223333", "0912223333", "912223333"):
+            result = await service.authenticate(None, "SecurePass1!", phone_number=fmt)
+            assert result is not None, f"phone login failed for format {fmt}"
+        assert await service.authenticate(None, "wrongpass", phone_number="+251912223333") is None
+
+    async def test_response_models_allow_null_email(self):
+        from uuid import uuid4
+        from datetime import datetime, timezone
+        from app.schemas.auth import UserAdminResponse, UserResponse
+        base = dict(
+            id=uuid4(),
+            email=None,
+            full_name="Email-Free Farmer",
+            is_active=True,
+            locale="en",
+            created_at=datetime.now(timezone.utc),
+        )
+        UserAdminResponse(**base, role_name="Farmer")
+        UserResponse(**base, role_id=uuid4())
